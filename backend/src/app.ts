@@ -22,6 +22,7 @@ const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
   .split(',')
   .map(origin => origin.trim())
   .filter(Boolean);
+const allowAnyOrigin = allowedOrigins.includes('*');
 
 // Middleware
 app.use(helmet({
@@ -40,7 +41,7 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow same-origin or server-to-server requests with no Origin header
     if (!origin) return callback(null, true);
-    if (allowedOrigins.includes(origin)) {
+    if (allowAnyOrigin || allowedOrigins.includes(origin)) {
       return callback(null, true);
     }
     return callback(new Error(`CORS blocked for origin: ${origin}`));
