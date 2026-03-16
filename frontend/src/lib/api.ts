@@ -1,7 +1,22 @@
 import axios from 'axios';
 
+const getBaseURL = () => {
+  if (process.env.NEXT_PUBLIC_API_URL) return process.env.NEXT_PUBLIC_API_URL;
+
+  // When running in the browser, default to the current origin (helps on custom domains)
+  if (typeof window !== 'undefined') {
+    return `${window.location.origin.replace(/\/$/, '')}/api`;
+  }
+
+  // Common serverless hosts expose public URL envs during SSR
+  if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}/api`;
+  if (process.env.RENDER_EXTERNAL_URL) return `https://${process.env.RENDER_EXTERNAL_URL}/api`;
+
+  return 'http://localhost:5000/api';
+};
+
 const api = axios.create({
-  baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api',
+  baseURL: getBaseURL(),
   headers: {
     'Content-Type': 'application/json',
   },

@@ -4,9 +4,18 @@ import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 
 export const initSocket = async (server: HttpServer) => {
+  const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+    .split(',')
+    .map(origin => origin.trim())
+    .filter(Boolean);
+
   const io = new Server(server, {
     cors: {
-      origin: process.env.CLIENT_URL || 'http://localhost:3000',
+      origin: (origin, callback) => {
+        if (!origin) return callback(null, true);
+        if (allowedOrigins.includes(origin)) return callback(null, true);
+        return callback(new Error(`Socket CORS blocked for origin: ${origin}`));
+      },
       methods: ['GET', 'POST'],
       credentials: true,
     },
