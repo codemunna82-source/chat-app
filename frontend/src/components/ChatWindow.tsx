@@ -240,7 +240,7 @@ const MessageBubble = React.memo(function MessageBubble({
 MessageBubble.displayName = 'MessageBubble';
 
 export default function ChatWindow() {
-  const [message, setMessage] = useState('');
+const [message, setMessage] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
