@@ -111,8 +111,8 @@ const MessageBubble = React.memo(function MessageBubble({
 
         {/* Message Bubble */}
         <div className={`relative px-4 py-[10px] shadow-sm transition-all duration-200 ${borderRadiusClasses} ${isMe
-            ? 'bg-gradient-to-br from-primary to-primary-hover text-white shadow-lg shadow-primary/15'
-            : 'bg-surface/90 text-foreground border border-border/50 shadow-sm'
+          ? 'bg-gradient-to-br from-primary to-primary-hover text-white shadow-lg shadow-primary/15'
+          : 'bg-surface/90 text-foreground border border-border/50 shadow-sm'
           }`}>
           {m.mediaUrl && (
             <div className={`mb-2 rounded-xl overflow-hidden ${isMe ? 'bg-black/10' : 'bg-black/5'}`}>
@@ -240,7 +240,7 @@ const MessageBubble = React.memo(function MessageBubble({
 MessageBubble.displayName = 'MessageBubble';
 
 export default function ChatWindow() {
-  const [message, setMessage] = useState('');
+  const [message, setMessage] = useState<string>("");
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -923,7 +923,7 @@ export default function ChatWindow() {
                 priority // Explicitly preload the header avatar for instant LCP scoring
               />
             </motion.div>
-         
+
           </div>
           <div
             className="flex flex-col cursor-pointer hover:bg-surface-hover/50 rounded-xl px-2 py-1 transition-colors"
