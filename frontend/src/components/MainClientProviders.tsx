@@ -42,7 +42,10 @@ export function MainClientProviders({ children }: { children: React.ReactNode })
       if (!cancelled) setShowBackground(true);
     };
 
-    if (typeof window !== 'undefined' && 'requestIdleCallback' in window) {
+    // Guard for SSR – bail out entirely when window is unavailable
+    if (typeof window === 'undefined') return;
+
+    if ('requestIdleCallback' in window) {
       const id = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(enable, { timeout: 1500 });
       return () => {
         cancelled = true;
@@ -50,10 +53,10 @@ export function MainClientProviders({ children }: { children: React.ReactNode })
       };
     }
 
-    const timeoutId = window.setTimeout(enable, 800);
+    const timeoutId = setTimeout(enable, 800);
     return () => {
       cancelled = true;
-      window.clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
     };
   }, []);
 
