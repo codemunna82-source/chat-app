@@ -9,7 +9,7 @@ import dynamic from 'next/dynamic';
 
 interface ChatComposerProps {
     message: string;
-    setMessage: (val: string) => void;
+    setMessage: React.Dispatch<React.SetStateAction<string>>;
     sendMessage: (e: React.FormEvent) => void;
     handleMediaChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
     media: File | null;
@@ -65,7 +65,7 @@ export default function ChatComposer({
     };
 
     const appendEmoji = (emoji: string) => {
-        setMessage((prev) => `${prev}${emoji}`);
+      setMessage(message + emoji); 
         setIsEmojiOpen(false);
         requestAnimationFrame(() => {
             inputRef.current?.focus();
