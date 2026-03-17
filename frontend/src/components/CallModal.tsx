@@ -31,6 +31,15 @@ export default function CallModal() {
   const callEndedRef = useRef(false);
   const streamRef = useRef<MediaStream | null>(null);
   const callActiveRef = useRef(false);
+  const callMetaRef = useRef({
+    callType: callType as 'audio' | 'video' | null,
+    userToCall,
+    callerData,
+    callAccepted
+  });
+  const callStartTimeRef = useRef<number | null>(null);
+  const hasLoggedRef = useRef(false);
+  const initiatedByRef = useRef<'me' | 'them' | null>(null);
 
   const [cameraOn, setCameraOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
@@ -51,7 +60,27 @@ export default function CallModal() {
   }, [stream]);
 
   useEffect(() => {
+    callMetaRef.current = { callType, userToCall, callerData, callAccepted };
+  }, [callType, userToCall, callerData, callAccepted]);
+
+  useEffect(() => {
+    callStartTimeRef.current = callStartTime;
+  }, [callStartTime]);
+
+  useEffect(() => {
     callActiveRef.current = isCalling || isReceivingCall;
+  }, [isCalling, isReceivingCall]);
+
+  useEffect(() => {
+    if (isCalling) {
+      initiatedByRef.current = 'me';
+    } else if (isReceivingCall && !initiatedByRef.current) {
+      initiatedByRef.current = 'them';
+    }
+    if (isCalling || isReceivingCall) {
+      hasLoggedRef.current = false;
+      setCallStartTime(null);
+    }
   }, [isCalling, isReceivingCall]);
 
   useEffect(() => {
@@ -82,27 +111,10 @@ export default function CallModal() {
       }
     };
 
-    const handleCallEnded = () => {
+    const handleCallEnded = async () => {
       console.log('[CallModal] Remote call ended event received');
-      // Use refs and store directly to avoid stale closures
-      if (peerConnectionRef.current) {
-        peerConnectionRef.current.close();
-        peerConnectionRef.current = null;
-      }
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => {
-          track.stop();
-        });
-      }
-      if (myVideo.current) myVideo.current.srcObject = null;
-      if (userVideo.current) userVideo.current.srcObject = null;
-      if (backgroundVideo.current) backgroundVideo.current.srcObject = null;
-      setStream(null);
-      if (callAcceptedHandlerRef.current && socket) {
-        socket.off('call accepted', callAcceptedHandlerRef.current);
-        callAcceptedHandlerRef.current = null;
-      }
-      useWebRTCStore.getState().resetCallState();
+      await logCallOnce();
+      cleanupMediaAndState();
     };
 
     socket.on('call user', handleIncomingCall);
@@ -267,6 +279,7 @@ export default function CallModal() {
   const answerCall = async () => {
     if (!stream || !callerData?.signal) return;
     setCallAccepted(true);
+    setCallStartTime(Date.now());
 
     try {
       const pc = createPeerConnection(stream);
@@ -318,38 +331,42 @@ export default function CallModal() {
     }
   };
 
-  const handleEndCall = (emitEvent: boolean = true) => {
-    setCallEnded(true);
+  const logCallOnce = async (statusOverride?: 'missed' | 'accepted' | 'rejected') => {
+    if (hasLoggedRef.current) return;
+    if (initiatedByRef.current !== 'me') return; // only the caller logs to avoid duplicates
+    const { callType, userToCall, callerData, callAccepted } = callMetaRef.current;
+    if (!callType) return;
 
-    if (emitEvent && socket) {
-      const targetUser = isCalling ? userToCall?._id : callerData?.from;
-      if (targetUser) {
-        socket.emit('end call', { to: targetUser });
-      }
+    const otherUserId = userToCall?._id || callerData?.from;
+    if (!otherUserId || !user?._id) return;
+
+    const duration = callStartTimeRef.current ? Math.max(0, Math.floor((Date.now() - callStartTimeRef.current) / 1000)) : 0;
+    const payload = {
+      receiverId: otherUserId,
+      status: statusOverride || (callAccepted ? 'accepted' : 'missed'),
+      callType,
+      duration
+    };
+
+    try {
+      hasLoggedRef.current = true;
+      await api.post('/call', payload);
+    } catch (err) {
+      // allow a retry on subsequent cleanup if the first attempt failed
+      hasLoggedRef.current = false;
+      console.error('[CallModal] Failed to log call:', err);
     }
+  };
 
-    // Log the call to the database IF we are the caller
-    if (isCalling && userToCall) {
-      const duration = callStartTime ? Math.floor((Date.now() - callStartTime) / 1000) : 0;
-      api.post('/call', {
-        receiverId: userToCall._id,
-        status: callAccepted ? 'accepted' : 'missed',
-        callType: callType,
-        duration: duration
-      }).catch(console.error);
-    }
-
+  const cleanupMediaAndState = () => {
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
       peerConnectionRef.current = null;
     }
 
-    // Stop ALL media tracks
     const activeStream = streamRef.current || stream;
     if (activeStream) {
-      activeStream.getTracks().forEach(track => {
-        track.stop();
-      });
+      activeStream.getTracks().forEach(track => track.stop());
     }
 
     if (myVideo.current) myVideo.current.srcObject = null;
@@ -359,13 +376,30 @@ export default function CallModal() {
     setStream(null);
     streamRef.current = null;
     resetCallState();
+    initiatedByRef.current = null;
+    setCallStartTime(null);
+    callStartTimeRef.current = null;
 
     if (callAcceptedHandlerRef.current && socket) {
       socket.off('call accepted', callAcceptedHandlerRef.current);
       callAcceptedHandlerRef.current = null;
     }
+  };
 
-    setTimeout(() => setCallEnded(false), 1000);
+  const handleEndCall = async (emitEvent: boolean = true) => {
+    setCallEnded(true);
+
+    if (emitEvent && socket) {
+      const targetUser = isCalling ? userToCall?._id : callerData?.from;
+      if (targetUser) {
+        socket.emit('end call', { to: targetUser });
+      }
+    }
+
+    await logCallOnce();
+    cleanupMediaAndState();
+
+    setTimeout(() => setCallEnded(false), 800);
   };
 
   const toggleMic = () => {

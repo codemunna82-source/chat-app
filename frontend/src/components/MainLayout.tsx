@@ -3,6 +3,7 @@
 import AppSidebar from '@/components/AppSidebar';
 import dynamic from 'next/dynamic';
 const Sidebar = dynamic(() => import('@/components/Sidebar'), { ssr: false });
+const CallModal = dynamic(() => import('@/components/CallModal'), { ssr: false });
 import { useProtectedRoute } from '@/hooks/useProtectedRoute';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
@@ -124,6 +125,9 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       {isMobile && isReady && isSettingsOpen && (
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       )}
+
+      {/* Global call handler UI + WebRTC wiring */}
+      {isReady && <CallModal />}
     </>
   );
 }
