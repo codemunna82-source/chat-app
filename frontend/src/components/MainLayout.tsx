@@ -43,7 +43,8 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const hideChatPane = isMobile && showSidebar && !selectedChat;
 
   return (
-    <div className="flex h-screen w-full overflow-hidden bg-background relative">
+    <>
+      <div className="flex h-screen w-full overflow-hidden bg-background relative">
         {/* Column 1: Slim App Navigation Sidebar (hidden on mobile for space) */}
         {!isMobile && (
           isReady ? (
@@ -123,6 +124,6 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
       {isMobile && isReady && isSettingsOpen && (
         <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
       )}
-    </div>
+    </>
   );
 }
