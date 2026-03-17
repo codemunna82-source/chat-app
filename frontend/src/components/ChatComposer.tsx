@@ -21,6 +21,7 @@ interface ChatComposerProps {
   fileInputRef: React.RefObject<HTMLInputElement | null>;
   typingHandler: (e: React.ChangeEvent<HTMLInputElement>) => void;
   effectsReady?: boolean;
+  isSending?: boolean;
 }
 
 const EmojiPicker = dynamic(() => import('emoji-picker-react'), { ssr: false });
@@ -38,7 +39,8 @@ export default function ChatComposer({
   audioData,
   fileInputRef,
   typingHandler,
-  effectsReady = true
+  effectsReady = true,
+  isSending = false
 }: ChatComposerProps) {
   const [isFocused, setIsFocused] = useState(false);
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
@@ -107,7 +109,7 @@ export default function ChatComposer({
                 <Paperclip className="w-5 h-5" />
               </button>
 
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {isAttachmentOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsAttachmentOpen(false)}></div>
@@ -213,7 +215,7 @@ export default function ChatComposer({
                 <Smile className="w-5 h-5" />
               </button>
 
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {isEmojiOpen && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setIsEmojiOpen(false)}></div>
@@ -261,7 +263,8 @@ export default function ChatComposer({
                 animate={{ scale: 1, rotate: 0 }}
                 exit={{ scale: 0, rotate: 45 }}
                 type="submit"
-                className="bg-primary hover:bg-primary-hover text-white rounded-2xl p-3.5 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 h-[52px] w-[52px] flex items-center justify-center"
+                disabled={isSending}
+                className="bg-primary hover:bg-primary-hover text-white rounded-2xl p-3.5 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed h-[52px] w-[52px] flex items-center justify-center"
                 aria-label="Send message"
               >
                 <Send className="w-5 h-5 ml-0.5" />

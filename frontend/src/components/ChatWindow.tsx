@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useTransition, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useTransition, useCallback, useMemo } from 'react';
 import { MoreVertical, Phone, Video, ArrowLeft, MessageSquare, Check, CheckCheck, Trash2 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useChatStore } from '@/store/useChatStore';
@@ -37,6 +37,7 @@ type ChatMessage = {
   createdAt: string;
   status?: 'sent' | 'delivered' | 'read';
   reactions?: Reaction[];
+  optimistic?: boolean;
 };
 type Chat = {
   _id: string;
@@ -119,7 +120,7 @@ const MessageBubble = React.memo(function MessageBubble({
               {m.mediaType === 'image' ? (
                 <div className="relative w-full min-h-[200px] max-h-80 bg-muted/20 flex items-center justify-center overflow-hidden rounded-lg" style={{ aspectRatio: '4/3' }}>
                   <Image
-                    src={`http://localhost:5000${m.mediaUrl}`}
+                    src={resolveMediaUrl(m.mediaUrl)}
                     alt="Media"
                     fill
                     sizes="(max-width: 768px) 100vw, 400px"
@@ -129,11 +130,11 @@ const MessageBubble = React.memo(function MessageBubble({
                   />
                 </div>
               ) : m.mediaType === 'video' ? (
-                <video src={`http://localhost:5000${m.mediaUrl}`} controls className="max-h-64 sm:max-h-80 w-auto object-contain rounded-lg" preload="metadata" />
+                <video src={resolveMediaUrl(m.mediaUrl)} controls className="max-h-64 sm:max-h-80 w-full max-w-[420px] object-contain rounded-lg" preload="metadata" />
               ) : m.mediaType === 'audio' ? (
-                <audio src={`http://localhost:5000${m.mediaUrl}`} controls className="max-w-48 sm:max-w-xs mt-1" />
+                <audio src={resolveMediaUrl(m.mediaUrl)} controls className="max-w-48 sm:max-w-xs mt-1" />
               ) : (
-                <a href={`http://localhost:5000${m.mediaUrl}`} target="_blank" className="underline overflow-hidden truncate block text-sm">Download Attachment</a>
+                <a href={resolveMediaUrl(m.mediaUrl)} target="_blank" className="underline overflow-hidden truncate block text-sm">Download Attachment</a>
               )}
             </div>
           )}
@@ -167,7 +168,7 @@ const MessageBubble = React.memo(function MessageBubble({
               >
                 <div className="w-4 h-4 rounded-full bg-border/80 flex items-center justify-center text-[10px]">😀</div>
               </button>
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {pickerMsgId === m._id && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setPickerMsgId(null)}></div>
@@ -264,6 +265,7 @@ export default function ChatWindow() {
   const [media, setMedia] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSending, setIsSending] = useState(false);
   // Audio visualization
   const [audioData, setAudioData] = useState<number[]>(new Array(20).fill(0));
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -285,6 +287,21 @@ export default function ChatWindow() {
   const isTypingRef = useRef(false);
   const [isPending, startTransition] = useTransition();
   const frameCountRef = useRef(0);
+  // Always prefer the user's current browser origin for media (works on prod domains and mobile IPs).
+  const mediaBase = useMemo(() => {
+    const envHost = (process.env.NEXT_PUBLIC_FILE_HOST || process.env.NEXT_PUBLIC_API_URL || '').replace(/\/api$/, '').replace(/\/$/, '');
+    if (envHost) return envHost;
+    if (typeof window !== 'undefined') {
+      return window.location.origin.replace(/\/$/, '');
+    }
+    return 'http://localhost:5000';
+  }, []);
+
+  const resolveMediaUrl = useCallback((url?: string | null) => {
+    if (!url) return '';
+    if (/^https?:\/\//i.test(url)) return url;
+    return `${mediaBase}${url.startsWith('/') ? url : `/${url}`}`;
+  }, [mediaBase]);
 
   const { selectedChat, setSelectedChat, setChats } = useChatStore() as {
     selectedChat: Chat | null;
@@ -659,7 +676,30 @@ export default function ChatWindow() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!message.trim() && !media) || !selectedChat) return;
+    if (isSending) return;
+    const trimmed = message.trim();
+    if ((!trimmed && !media) || !selectedChat) return;
+
+    if (!user) return;
+
+    setIsSending(true);
+
+    // Optimistic render for text-only messages to improve perceived speed on mobile
+    const tempId = `temp-${Date.now()}`;
+    let optimisticMessage: ChatMessage | null = null;
+    if (!media && trimmed) {
+      optimisticMessage = {
+        _id: tempId,
+        sender: user as ChatUser,
+        content: trimmed,
+        chat: { _id: selectedChat._id },
+        createdAt: new Date().toISOString(),
+        status: 'sent',
+        reactions: [],
+        optimistic: true,
+      };
+      setMessages((prev) => [...prev, optimisticMessage as ChatMessage]);
+    }
 
     try {
       let data: ChatMessage;
@@ -668,7 +708,7 @@ export default function ChatWindow() {
         const formData = new FormData();
         formData.append('media', media);
         formData.append('chatId', selectedChat._id);
-        formData.append('content', message);
+        formData.append('content', trimmed);
         if (media.type.startsWith('image/')) formData.append('mediaType', 'image');
         if (media.type.startsWith('video/')) formData.append('mediaType', 'video');
         if (media.type.startsWith('audio/')) formData.append('mediaType', 'audio');
@@ -681,7 +721,7 @@ export default function ChatWindow() {
         data = response.data;
       } else {
         const response = await api.post('/message', {
-          content: message,
+          content: trimmed,
           chatId: selectedChat._id,
         });
         data = response.data;
@@ -693,11 +733,21 @@ export default function ChatWindow() {
 
       socket?.emit('stop typing', selectedChat._id);
       socket?.emit('new message', data);
-      setMessages((prev) => [...prev, data as ChatMessage]);
+      setMessages((prev) => {
+        if (optimisticMessage) {
+          return prev.map((m) => (m._id === tempId ? data as ChatMessage : m));
+        }
+        return [...prev, data as ChatMessage];
+      });
     } catch (error: unknown) {
       const apiError = error as { response?: { data?: { message?: string } }; message?: string };
       console.error('Failed to send message:', apiError.response?.data || apiError.message || apiError);
+      if (optimisticMessage) {
+        setMessages((prev) => prev.filter((m) => m._id !== tempId));
+      }
       alert(`Failed to send message: ${apiError.response?.data?.message || 'File might be too large or invalid'}`);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -955,7 +1005,7 @@ export default function ChatWindow() {
             >
               <MoreVertical className="w-5 h-5" />
             </button>
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {isMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
@@ -1082,12 +1132,13 @@ export default function ChatWindow() {
           isRecording={isRecording}
           startRecording={startRecording}
           stopRecording={stopRecording}
-          recordingTime={recordingTime}
-          audioData={audioData}
-          fileInputRef={fileInputRef}
-          typingHandler={typingHandler}
-          effectsReady={effectsReady}
-        />
+        recordingTime={recordingTime}
+        audioData={audioData}
+        fileInputRef={fileInputRef}
+        typingHandler={typingHandler}
+        effectsReady={effectsReady}
+        isSending={isSending}
+      />
       </div>
 
       {isContactInfoOpen && (
