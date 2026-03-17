@@ -24,8 +24,8 @@ app.use((0, helmet_1.default)({
     contentSecurityPolicy: {
         useDefaults: true,
         directives: {
-            "img-src": ["'self'", "data:", "blob:", process.env.CDN_URL || process.env.CLIENT_URL || "http://localhost:5000"],
-            "media-src": ["'self'", "data:", "blob:", process.env.CDN_URL || process.env.CLIENT_URL || "http://localhost:5000"],
+            "img-src": ["'self'", "data:", "blob:", process.env.CDN_URL || "https://chat-apyuyhe48-codemunna82-sources-projects.vercel.app" || "http://localhost:5000"],
+            "media-src": ["'self'", "data:", "blob:", process.env.CDN_URL || "https://chat-apyuyhe48-codemunna82-sources-projects.vercel.app" || "http://localhost:5000"],
             "connect-src": ["'self'", process.env.CLIENT_URL || "http://localhost:3000", process.env.SOCKET_URL || "http://localhost:5000", process.env.API_URL || "http://localhost:5000"],
         }
     }
