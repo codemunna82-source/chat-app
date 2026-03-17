@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { PhoneMissed, Phone, Video, Mic, MicOff, VideoOff, Repeat } from 'lucide-react';
 import { useWebRTCStore } from '@/store/useWebRTCStore';
 import { useSocket } from '@/contexts/SocketContext';
