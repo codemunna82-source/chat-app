@@ -1,3 +1,5 @@
+'use client';
+
 import { AnimatePresence, motion } from 'framer-motion';
 import { AlertTriangle, Info } from 'lucide-react';
 import { createPortal } from 'react-dom';
