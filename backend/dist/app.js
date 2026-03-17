@@ -18,6 +18,12 @@ const upload_routes_1 = __importDefault(require("./routes/upload.routes"));
 const rateLimit_middleware_1 = require("./middlewares/rateLimit.middleware");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
+// Allow multiple comma-separated origins e.g. CLIENT_URL="https://app.com,https://admin.app.com"
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+    .split(/[;,]/)
+    .map(origin => origin.trim())
+    .filter(Boolean);
+const allowAnyOrigin = allowedOrigins.includes('*');
 // Middleware
 app.use((0, helmet_1.default)({
     crossOriginResourcePolicy: { policy: 'cross-origin' },
@@ -32,7 +38,14 @@ app.use((0, helmet_1.default)({
 }));
 app.use((0, compression_1.default)());
 app.use((0, cors_1.default)({
-    origin: process.env.CLIENT_URL || 'http://localhost:3000',
+    origin: (origin, callback) => {
+        if (!origin)
+            return callback(null, true);
+        if (allowAnyOrigin || allowedOrigins.includes(origin)) {
+            return callback(null, true);
+        }
+        return callback(new Error(`CORS blocked for origin: ${origin}`));
+    },
     credentials: true,
 }));
 app.use(rateLimit_middleware_1.rateLimiter);

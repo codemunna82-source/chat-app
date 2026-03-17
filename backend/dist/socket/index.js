@@ -14,9 +14,20 @@ const socket_io_1 = require("socket.io");
 const redis_1 = require("redis");
 const redis_adapter_1 = require("@socket.io/redis-adapter");
 const initSocket = (server) => __awaiter(void 0, void 0, void 0, function* () {
+    const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+        .split(/[;,]/)
+        .map(origin => origin.trim())
+        .filter(Boolean);
+    const allowAnyOrigin = allowedOrigins.includes('*');
     const io = new socket_io_1.Server(server, {
         cors: {
-            origin: process.env.CLIENT_URL || 'http://localhost:3000',
+            origin: (origin, callback) => {
+                if (!origin)
+                    return callback(null, true);
+                if (allowAnyOrigin || allowedOrigins.includes(origin))
+                    return callback(null, true);
+                return callback(new Error(`Socket CORS blocked for origin: ${origin}`));
+            },
             methods: ['GET', 'POST'],
             credentials: true,
         },

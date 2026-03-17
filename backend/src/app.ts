@@ -17,9 +17,9 @@ dotenv.config();
 
 const app: Application = express();
 
-// Allow multiple comma-separated origins e.g. "https://app.com,https://admin.app.com"
-const allowedOrigins = ("https://chat-apyuyhe48-codemunna82-sources-projects.vercel.app" || 'http://localhost:3000')
-  .split(',')
+// Allow multiple comma-separated origins from env e.g. CLIENT_URL="https://app.com,https://admin.app.com"
+const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  .split(/[;,]/) // accept comma or semicolon separators
   .map(origin => origin.trim())
   .filter(Boolean);
 const allowAnyOrigin = allowedOrigins.includes('*');
