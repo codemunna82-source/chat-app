@@ -1,3 +1,5 @@
+'use client';
+
 import { useState } from 'react';
 import { X, Moon, Sun, Bell, Volume2, Shield, CircleSlash, Database, Monitor, ChevronRight, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
