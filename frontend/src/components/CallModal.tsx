@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { PhoneMissed, Phone, Video, Mic, MicOff, VideoOff } from 'lucide-react';
+import { PhoneMissed, Phone, Video, Mic, MicOff, VideoOff, Repeat } from 'lucide-react';
 import { useWebRTCStore } from '@/store/useWebRTCStore';
 import { useSocket } from '@/contexts/SocketContext';
 import { useAuthStore } from '@/store/useAuthStore';
@@ -43,6 +43,7 @@ export default function CallModal() {
 
   const [cameraOn, setCameraOn] = useState(true);
   const [micOn, setMicOn] = useState(true);
+  const [cameraFacing, setCameraFacing] = useState<'user' | 'environment'>('user');
   const [callStartTime, setCallStartTime] = useState<number | null>(null);
 
   const myVideo = useRef<HTMLVideoElement>(null);
@@ -174,43 +175,82 @@ export default function CallModal() {
     return () => stopTones();
   }, [isCalling, isReceivingCall, callAccepted, callEnded]);
 
+  const startLocalStream = useCallback(
+    async (desiredFacing: 'user' | 'environment', replaceExisting = false) => {
+      if (!callType) return;
+      try {
+        const constraints: MediaStreamConstraints = {
+          audio: true,
+          video: callType === 'video' ? { facingMode: desiredFacing } : false,
+        };
+
+        const currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+        const isStillActive = useWebRTCStore.getState().isCalling || useWebRTCStore.getState().isReceivingCall;
+        if (callEndedRef.current || !isStillActive) {
+          currentStream.getTracks().forEach(track => track.stop());
+          return;
+        }
+
+        // Swap tracks on existing connection if requested
+        if (replaceExisting && peerConnectionRef.current) {
+          const newVideoTrack = currentStream.getVideoTracks()[0];
+          peerConnectionRef.current.getSenders().forEach((sender) => {
+            if (newVideoTrack && sender.track?.kind === 'video') {
+              sender.replaceTrack(newVideoTrack);
+            }
+          });
+        }
+
+        // Stop previous stream tracks before replacing state
+        if (stream) {
+          stream.getTracks().forEach(track => track.stop());
+        }
+
+        setStream(currentStream);
+        currentStream.getAudioTracks().forEach(track => {
+          track.enabled = true;
+        });
+        currentStream.getVideoTracks().forEach(track => {
+          track.enabled = callType === 'video';
+        });
+        if (myVideo.current) {
+          myVideo.current.srcObject = currentStream;
+        }
+        if (backgroundVideo.current && callType === 'video') {
+          backgroundVideo.current.srcObject = currentStream;
+        }
+
+        // If I am the one calling, initiate the Peer connection
+        if (!replaceExisting && isCalling && userToCall) {
+          initiatePeerConnection(currentStream);
+        }
+      } catch (err) {
+        console.error("Failed to get local media", err);
+        // If environment camera failed, fallback to front once
+        if (desiredFacing === 'environment') {
+          setCameraFacing('user');
+          startLocalStream('user', replaceExisting);
+          return;
+        }
+        handleEndCall(true);
+      }
+    },
+    [callType, isCalling, userToCall, stream]
+  );
+
   // 3. Setup media stream when a call starts
   useEffect(() => {
     let cancelled = false;
     if ((isCalling || isReceivingCall) && !stream) {
-      navigator.mediaDevices.getUserMedia({ video: callType === 'video', audio: true })
-        .then((currentStream) => {
-          const isStillActive = useWebRTCStore.getState().isCalling || useWebRTCStore.getState().isReceivingCall;
-          if (cancelled || callEndedRef.current || !isStillActive) {
-            currentStream.getTracks().forEach(track => track.stop());
-            return;
-          }
-          setStream(currentStream);
-          currentStream.getAudioTracks().forEach(track => {
-            track.enabled = true;
-          });
-          currentStream.getVideoTracks().forEach(track => {
-            track.enabled = callType === 'video';
-          });
-          if (myVideo.current) {
-            myVideo.current.srcObject = currentStream;
-          }
-          if (backgroundVideo.current && callType === 'video') {
-            backgroundVideo.current.srcObject = currentStream;
-          }
-
-          // If I am the one calling, initiate the Peer connection
-          if (isCalling && userToCall) {
-            initiatePeerConnection(currentStream);
-          }
-        })
-        .catch(err => {
-          console.error("Failed to get local media", err);
+      startLocalStream(cameraFacing).catch((err) => {
+        if (!cancelled) {
+          console.error("Failed to start local stream", err);
           handleEndCall(true);
-        });
+        }
+      });
     }
     return () => { cancelled = true; };
-  }, [isCalling, isReceivingCall]);
+  }, [isCalling, isReceivingCall, stream, cameraFacing, startLocalStream]);
 
   // --- Native RTCPeerConnection helpers ---
 
@@ -454,6 +494,13 @@ export default function CallModal() {
     }
   }
 
+  const switchFacing = async () => {
+    if (callType !== 'video') return;
+    const nextFacing = cameraFacing === 'user' ? 'environment' : 'user';
+    setCameraFacing(nextFacing);
+    await startLocalStream(nextFacing, true);
+  };
+
   if (!isCalling && !isReceivingCall && !callEnded) return null;
 
   return (
@@ -495,7 +542,7 @@ export default function CallModal() {
 
             {/* PiP Local Video */}
             {callType === 'video' && (
-              <div className="absolute top-6 right-6 w-32 h-48 sm:w-40 sm:h-60 bg-surface rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl transition-transform hover:scale-105 cursor-move">
+              <div className="absolute bottom-6 right-4 w-28 h-40 sm:w-36 sm:h-52 bg-surface rounded-2xl overflow-hidden border-2 border-white/20 shadow-2xl transition-transform hover:scale-105">
                 <video playsInline muted ref={myVideo} autoPlay className="w-full h-full object-cover rounded-xl" />
               </div>
             )}
@@ -504,9 +551,14 @@ export default function CallModal() {
           {/* Controls Panel */}
           <div className="mt-8 flex items-center justify-center gap-6 glass-panel rounded-full px-8 py-5 mx-auto">
             {callType === 'video' && (
-              <button onClick={toggleCamera} className={`p-4 rounded-full transition-all shadow-sm ${cameraOn ? 'bg-surface-hover hover:bg-white/20 text-foreground' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}>
-                {cameraOn ? <Video className="w-7 h-7" /> : <VideoOff className="w-7 h-7" />}
-              </button>
+              <>
+                <button onClick={toggleCamera} className={`p-4 rounded-full transition-all shadow-sm ${cameraOn ? 'bg-surface-hover hover:bg-white/20 text-foreground' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}>
+                  {cameraOn ? <Video className="w-7 h-7" /> : <VideoOff className="w-7 h-7" />}
+                </button>
+                <button onClick={switchFacing} className="p-4 rounded-full bg-surface-hover hover:bg-white/20 text-foreground transition-all shadow-sm">
+                  <Repeat className="w-7 h-7" />
+                </button>
+              </>
             )}
             <button onClick={toggleMic} className={`p-4 rounded-full transition-all shadow-sm ${micOn ? 'bg-surface-hover hover:bg-white/20 text-foreground' : 'bg-red-500/10 text-red-500 hover:bg-red-500/20'}`}>
               {micOn ? <Mic className="w-7 h-7" /> : <MicOff className="w-7 h-7" />}
