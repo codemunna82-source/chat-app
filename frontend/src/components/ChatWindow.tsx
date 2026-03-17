@@ -703,17 +703,28 @@ export default function ChatWindow() {
       setMessages((prev) => [...prev, optimisticMessage as ChatMessage]);
     }
 
+    const mediaToSend = media;
+    const contentToSend = trimmed;
+
+    // Clear the UI instantly so the composer feels responsive on phones
+    setMessage('');
+    if (mediaPreview || mediaToSend) {
+      setMedia(null);
+      setMediaPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+
     try {
       let data: ChatMessage;
 
-      if (media) {
+      if (mediaToSend) {
         const formData = new FormData();
-        formData.append('media', media);
+        formData.append('media', mediaToSend);
         formData.append('chatId', selectedChat._id);
-        formData.append('content', trimmed);
-        if (media.type.startsWith('image/')) formData.append('mediaType', 'image');
-        if (media.type.startsWith('video/')) formData.append('mediaType', 'video');
-        if (media.type.startsWith('audio/')) formData.append('mediaType', 'audio');
+        formData.append('content', contentToSend);
+        if (mediaToSend.type.startsWith('image/')) formData.append('mediaType', 'image');
+        if (mediaToSend.type.startsWith('video/')) formData.append('mediaType', 'video');
+        if (mediaToSend.type.startsWith('audio/')) formData.append('mediaType', 'audio');
 
         const response = await api.post('/message', formData, {
           headers: {
@@ -723,15 +734,11 @@ export default function ChatWindow() {
         data = response.data;
       } else {
         const response = await api.post('/message', {
-          content: trimmed,
+          content: contentToSend,
           chatId: selectedChat._id,
         });
         data = response.data;
       }
-
-      setMessage('');
-      setMedia(null);
-      setMediaPreview(null);
 
       socket?.emit('stop typing', selectedChat._id);
       socket?.emit('new message', data);
@@ -747,6 +754,7 @@ export default function ChatWindow() {
       if (optimisticMessage) {
         setMessages((prev) => prev.filter((m) => m._id !== tempId));
       }
+      if (contentToSend) setMessage(contentToSend);
       alert(`Failed to send message: ${apiError.response?.data?.message || 'File might be too large or invalid'}`);
     } finally {
       setIsSending(false);

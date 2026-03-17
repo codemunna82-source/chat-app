@@ -59,14 +59,21 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
             initial={{ opacity: 0, scale: 0.95, y: 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: 20 }}
-            className="relative w-full max-w-2xl h-[80vh] min-h-[500px] flex overflow-hidden bg-surface border border-border/50 rounded-3xl shadow-2xl"
+            className="relative w-full max-w-xl sm:max-w-3xl h-[85vh] sm:h-[80vh] min-h-[70vh] sm:min-h-[500px] flex flex-col sm:flex-row overflow-hidden bg-surface border border-border/50 rounded-2xl sm:rounded-3xl shadow-2xl"
           >
             {/* Settings Sidebar */}
-            <div className="w-1/3 border-r border-border/50 bg-background/50 flex flex-col">
-              <div className="px-6 py-5 border-b border-border/50">
-                  <h2 className="text-xl font-bold text-foreground">Settings</h2>
+            <div className="w-full sm:w-1/3 border-b sm:border-b-0 sm:border-r border-border/50 bg-background/50 flex flex-col sm:max-w-xs">
+              <div className="px-5 sm:px-6 py-4 sm:py-5 border-b border-border/50 flex items-center justify-between">
+                  <h2 className="text-lg sm:text-xl font-bold text-foreground">Settings</h2>
+                  <button 
+                    onClick={onClose}
+                    className="sm:hidden p-2 rounded-full text-muted hover:text-foreground hover:bg-surface-hover transition-colors"
+                    aria-label="Close settings"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-1">
+              <div className="flex-1 overflow-y-auto p-3 space-y-1 sm:space-y-0 sm:p-4">
                   {[
                     { id: 'appearance', icon: Monitor, label: 'Appearance' },
                     { id: 'notifications', icon: Bell, label: 'Notifications' },
@@ -99,7 +106,7 @@ export default function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
                   </button>
               </div>
               
-              <div className="flex-1 overflow-y-auto p-6 space-y-8">
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-6 sm:space-y-8">
                   
                   {activeTab === 'appearance' && (
                   <section>
