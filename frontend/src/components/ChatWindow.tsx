@@ -61,6 +61,7 @@ interface MessageBubbleProps {
   setPickerMsgId: React.Dispatch<React.SetStateAction<string | null>>;
   handleReact: (msgId: string, emoji: string) => void;
   handleDeleteMessage: (msgId: string) => void;
+  resolveMediaUrl: (url?: string | null) => string;
 }
 
 
@@ -75,7 +76,8 @@ const MessageBubble = React.memo(function MessageBubble({
   pickerMsgId,
   setPickerMsgId,
   handleReact,
-  handleDeleteMessage
+  handleDeleteMessage,
+  resolveMediaUrl,
 }: MessageBubbleProps) {
   const borderRadiusClasses = isMe
     ? `rounded-[20px] ${!isFirstInGroup ? 'rounded-tr-[5px]' : ''} ${!isLastInGroup ? 'rounded-br-[5px]' : ''} ${isFirstInGroup && isLastInGroup ? 'rounded-tr-[5px]' : ''}`
@@ -775,6 +777,7 @@ export default function ChatWindow() {
             setPickerMsgId={setPickerMsgId}
             handleReact={handleReact}
             handleDeleteMessage={handleDeleteMessage}
+            resolveMediaUrl={resolveMediaUrl}
           />
         </div>
       );
