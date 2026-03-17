@@ -42,14 +42,13 @@ export function MainClientProviders({ children }: { children: React.ReactNode })
       if (!cancelled) setShowBackground(true);
     };
 
-    // Guard for SSR – bail out entirely when window is unavailable
-    if (typeof window === 'undefined') return;
+    const win = typeof window !== 'undefined' ? window : undefined;
 
-    if ('requestIdleCallback' in window) {
-      const id = (window as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(enable, { timeout: 1500 });
+    if (win && 'requestIdleCallback' in win) {
+      const id = (win as Window & { requestIdleCallback: (cb: () => void, opts?: { timeout: number }) => number }).requestIdleCallback(enable, { timeout: 1500 });
       return () => {
         cancelled = true;
-        (window as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
+        (win as Window & { cancelIdleCallback?: (id: number) => void }).cancelIdleCallback?.(id);
       };
     }
 
