@@ -84,7 +84,7 @@ export default function ChatComposer({
         accept="image/*,video/*,audio/*,.pdf,.doc,.docx"
       />
 
-      <form className="flex items-end gap-2 md:gap-3 max-w-5xl mx-auto" onSubmit={sendMessage}>
+      <form className="flex flex-wrap sm:flex-nowrap items-end gap-2 md:gap-3 max-w-5xl mx-auto w-full" onSubmit={sendMessage}>
 
         {/* Attachment Actions */}
         <AnimatePresence initial={false}>

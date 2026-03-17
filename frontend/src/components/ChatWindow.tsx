@@ -712,7 +712,7 @@ export default function ChatWindow() {
       const isFirstInGroup = !prevMessage || prevMessage.sender._id !== m.sender._id;
 
       return (
-        <div key={m._id} className="px-4 md:px-6 cv-auto">
+        <div key={m._id} className="px-3 sm:px-4 md:px-6 cv-auto">
           <MessageBubble
             m={m}
             isMe={isMe}
@@ -896,14 +896,14 @@ export default function ChatWindow() {
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-background relative overflow-hidden transition-colors duration-300">
+    <div className="flex-1 flex flex-col h-full min-h-0 bg-background relative overflow-hidden transition-colors duration-300">
 
       {/* Subtle Background Pattern */}
       <div className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)', backgroundSize: '24px 24px' }}></div>
 
       {/* Chat Header */}
-      <div className={`h-16 border-b border-border/60 flex flex-shrink-0 items-center justify-between px-6 bg-surface/90 ${effectsReady && !isMobile ? 'backdrop-blur-xl' : ''} z-20 w-full transition-colors duration-300 shadow-sm`}>
-        <div className="flex items-center gap-4">
+      <div className={`h-16 border-b border-border/60 flex flex-shrink-0 items-center justify-between px-4 sm:px-6 bg-surface/90 ${effectsReady && !isMobile ? 'backdrop-blur-xl' : ''} z-20 w-full transition-colors duration-300 shadow-sm`}>
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0">
           <button
             className="md:hidden text-muted hover:text-foreground p-2 -ml-2 rounded-full hover:bg-surface-hover transition-colors"
             onClick={() => setSelectedChat(null)}
@@ -926,13 +926,13 @@ export default function ChatWindow() {
 
           </div>
           <div
-            className="flex flex-col cursor-pointer hover:bg-surface-hover/50 rounded-xl px-2 py-1 transition-colors"
+            className="flex flex-col cursor-pointer hover:bg-surface-hover/50 rounded-xl px-2 py-1 transition-colors min-w-0"
             onClick={() => setIsContactInfoOpen(true)}
           >
-            <h3 className="font-bold text-[17px] text-foreground tracking-tight flex items-center gap-2">
+            <h3 className="font-bold text-[17px] text-foreground tracking-tight flex items-center gap-2 truncate">
               {selectedChat.isGroupChat ? selectedChat.chatName : sender?.name}
             </h3>
-            <p className="text-[13px] font-medium text-muted">
+            <p className="text-[13px] font-medium text-muted truncate">
               {senderIsOnline ? (
                 <span className="text-primary flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
@@ -942,7 +942,7 @@ export default function ChatWindow() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-muted">
+        <div className="flex items-center gap-1 text-muted shrink-0">
           <button onClick={() => startCall('video')} aria-label="Start video call" className="p-2.5 rounded-2xl hover:bg-surface-hover hover:text-primary transition-all shadow-sm"><Video className="w-5 h-5" /></button>
           <button onClick={() => startCall('audio')} aria-label="Start audio call" className="p-2.5 rounded-2xl hover:bg-surface-hover hover:text-primary transition-all shadow-sm"><Phone className="w-5 h-5" /></button>
           <div className="w-[1px] h-6 bg-border/50 mx-1"></div>
@@ -992,7 +992,7 @@ export default function ChatWindow() {
       </div>
 
       {/* Messages Area */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto w-full relative z-10 flex flex-col pt-4 contain-paint">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto w-full relative z-10 flex flex-col pt-4 contain-paint min-h-0">
         {isPending ? (
           <div className="space-y-4 px-4">
             {[1, 2, 3, 4, 5].map(i => (

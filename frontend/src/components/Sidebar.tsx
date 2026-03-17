@@ -190,8 +190,8 @@ export default function Sidebar() {
 
   return (
     <>
-    <div className="w-full md:w-[320px] lg:w-[380px] h-full flex flex-col bg-surface/80 backdrop-blur-xl border-r border-border/60 transition-colors duration-300">
-        <div className="h-16 flex items-center justify-between px-6 py-3 border-b border-border/50">
+    <div className="w-full md:w-[320px] lg:w-[380px] h-full min-w-0 flex flex-col bg-surface/80 backdrop-blur-xl border-r border-border/60 transition-colors duration-300">
+        <div className="h-16 flex items-center justify-between px-4 md:px-6 py-3 border-b border-border/50">
           <h2 className="font-bold text-xl text-foreground tracking-tight">Chats</h2>
           <button
             onClick={() => setIsNewChatOpen(true)}
