@@ -13,7 +13,10 @@ const JAKE_AVATAR = 'https://randomuser.me/api/portraits/men/90.jpg';
 
 const seedDatabase = async () => {
   try {
-    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/whatsapp-clone';
+    const mongoURI = process.env.MONGODB_URI;
+    if (!mongoURI) {
+      throw new Error('MONGODB_URI is not defined in environment');
+    }
     await mongoose.connect(mongoURI);
     console.log('MongoDB connected for seeding...\n');
 

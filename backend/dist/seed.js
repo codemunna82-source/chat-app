@@ -24,7 +24,10 @@ const AMY_AVATAR = 'https://randomuser.me/api/portraits/women/44.jpg';
 const JAKE_AVATAR = 'https://randomuser.me/api/portraits/men/90.jpg';
 const seedDatabase = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/whatsapp-clone';
+        const mongoURI = process.env.MONGODB_URI;
+        if (!mongoURI) {
+            throw new Error('MONGODB_URI is not defined in environment');
+        }
         yield mongoose_1.default.connect(mongoURI);
         console.log('MongoDB connected for seeding...\n');
         // 1. Clear existing dummy data strictly by email if needed, or clear all (using clear all for clean slate)

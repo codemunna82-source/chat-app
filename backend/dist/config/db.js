@@ -17,7 +17,10 @@ const dotenv_1 = __importDefault(require("dotenv"));
 dotenv_1.default.config();
 const connectDB = () => __awaiter(void 0, void 0, void 0, function* () {
     try {
-        const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/whatsapp-clone';
+        const mongoURI = process.env.MONGODB_URI;
+        if (!mongoURI) {
+            throw new Error('MONGODB_URI is not defined in environment');
+        }
         yield mongoose_1.default.connect(mongoURI);
         console.log('MongoDB connected successfully');
     }
