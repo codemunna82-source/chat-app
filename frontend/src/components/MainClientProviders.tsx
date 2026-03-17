@@ -53,6 +53,7 @@ export function MainClientProviders({ children }: { children: React.ReactNode })
       };
     }
 
+    // Avoid referencing window.* to keep TS/SSR happy; globals exist in the client runtime
     const timeoutId = setTimeout(enable, 800);
     return () => {
       cancelled = true;
