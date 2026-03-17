@@ -401,25 +401,43 @@ export default function ChatWindow() {
 
       // Update global chats list to move chat to top and adjust unread count/latest message
       setChats((prevChats) => {
-        const updatedChats = prevChats.map((c) => {
-          if (c._id === newMessageReceived.chat._id) {
-            const safeUnreadCounts = c.unreadCounts || {};
-            const currentCount = safeUnreadCounts[user?._id as string] || 0;
-            return {
-              ...c,
+        const existing = prevChats.find((c) => c._id === newMessageReceived.chat._id);
+
+        // If this is a brand‑new chat (receiver never opened it), add it to the list
+        if (!existing) {
+          const safeUnreadCounts = (newMessageReceived.chat.unreadCounts as Record<string, number> | undefined) || {};
+          return [
+            {
+              ...newMessageReceived.chat,
               latestMessage: newMessageReceived,
               unreadCounts: {
                 ...safeUnreadCounts,
-                [user?._id as string]: isUnread ? currentCount + 1 : currentCount
-              }
-            };
-          }
-          return c;
+                [user?._id as string]: isUnread ? 1 : 0,
+              },
+            },
+            ...prevChats,
+          ];
+        }
+
+        // Otherwise update the existing chat and move it to the top
+        const updatedChats = prevChats.map((c) => {
+          if (c._id !== newMessageReceived.chat._id) return c;
+
+          const safeUnreadCounts = c.unreadCounts || {};
+          const currentCount = safeUnreadCounts[user?._id as string] || 0;
+          return {
+            ...c,
+            latestMessage: newMessageReceived,
+            unreadCounts: {
+              ...safeUnreadCounts,
+              [user?._id as string]: isUnread ? currentCount + 1 : currentCount,
+            },
+          };
         });
 
-        const targetChat = updatedChats.find(c => c._id === newMessageReceived.chat._id);
+        const targetChat = updatedChats.find((c) => c._id === newMessageReceived.chat._id);
         if (targetChat) {
-          return [targetChat, ...updatedChats.filter(c => c._id !== targetChat._id)];
+          return [targetChat, ...updatedChats.filter((c) => c._id !== targetChat._id)];
         }
         return updatedChats;
       });

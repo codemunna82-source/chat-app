@@ -90,6 +90,42 @@ export default function CallModal() {
     }
   }, [isCalling, isReceivingCall, callType]);
 
+  const formatCallDuration = (seconds: number) => {
+    if (!seconds || seconds < 1) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+  };
+
+  const logCallMessageToChat = async (
+    otherUserId: string,
+    status: 'missed' | 'accepted' | 'rejected',
+    callTypeValue: 'audio' | 'video',
+    durationSeconds: number
+  ) => {
+    try {
+      // Ensure a 1:1 chat exists (creates if needed)
+      const chatRes = await api.post('/chat', { userId: otherUserId });
+      const chatId = chatRes.data?._id;
+      if (!chatId) return;
+
+      const statusLabel =
+        status === 'accepted'
+          ? `Duration ${formatCallDuration(durationSeconds)}`
+          : status === 'missed'
+            ? 'Missed call'
+            : 'Declined';
+
+      const content = `${callTypeValue === 'video' ? 'Video' : 'Audio'} call • ${statusLabel}`;
+
+      const messageRes = await api.post('/message', { content, chatId });
+      // Broadcast so the other user immediately sees the log + chat entry
+      socket?.emit('new message', messageRes.data);
+    } catch (err) {
+      console.error('[CallModal] Failed to create call log message', err);
+    }
+  };
+
   // 1. Listen for incoming calls on socket
   useEffect(() => {
     if (!socket) return;
@@ -351,6 +387,8 @@ export default function CallModal() {
     try {
       hasLoggedRef.current = true;
       await api.post('/call', payload);
+      // Also drop a lightweight call log message into the chat so both users see it inline
+      await logCallMessageToChat(otherUserId, payload.status, callType, duration);
     } catch (err) {
       // allow a retry on subsequent cleanup if the first attempt failed
       hasLoggedRef.current = false;
