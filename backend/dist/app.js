@@ -19,7 +19,8 @@ const rateLimit_middleware_1 = require("./middlewares/rateLimit.middleware");
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 // Allow multiple comma-separated origins e.g. CLIENT_URL="https://app.com,https://admin.app.com"
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+const rawClientUrls = process.env.CLIENT_URL || process.env.CLIENT_URI || 'http://localhost:3000';
+const allowedOrigins = rawClientUrls
     .split(/[;,]/)
     .map(origin => origin.trim())
     .filter(Boolean);

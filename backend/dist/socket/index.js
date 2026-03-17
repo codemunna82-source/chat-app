@@ -14,7 +14,8 @@ const socket_io_1 = require("socket.io");
 const redis_1 = require("redis");
 const redis_adapter_1 = require("@socket.io/redis-adapter");
 const initSocket = (server) => __awaiter(void 0, void 0, void 0, function* () {
-    const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+    const rawClientUrls = process.env.CLIENT_URL || process.env.CLIENT_URI || 'http://localhost:3000';
+    const allowedOrigins = rawClientUrls
         .split(/[;,]/)
         .map(origin => origin.trim())
         .filter(Boolean);

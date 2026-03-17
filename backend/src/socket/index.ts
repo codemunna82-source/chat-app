@@ -4,7 +4,8 @@ import { createClient } from 'redis';
 import { createAdapter } from '@socket.io/redis-adapter';
 
 export const initSocket = async (server: HttpServer) => {
-  const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+  const rawClientUrls = process.env.CLIENT_URL || process.env.CLIENT_URI || 'http://localhost:3000';
+  const allowedOrigins = rawClientUrls
     .split(',')
     .map(origin => origin.trim())
     .filter(Boolean);

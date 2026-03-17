@@ -18,7 +18,9 @@ dotenv.config();
 const app: Application = express();
 
 // Allow multiple comma-separated origins from env e.g. CLIENT_URL="https://app.com,https://admin.app.com"
-const allowedOrigins = (process.env.CLIENT_URL || 'http://localhost:3000')
+// Support both CLIENT_URL and legacy CLIENT_URI to avoid misnamed envs in hosting dashboards.
+const rawClientUrls = process.env.CLIENT_URL || process.env.CLIENT_URI || 'http://localhost:3000';
+const allowedOrigins = rawClientUrls
   .split(/[;,]/) // accept comma or semicolon separators
   .map(origin => origin.trim())
   .filter(Boolean);
