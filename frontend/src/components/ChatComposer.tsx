@@ -43,6 +43,18 @@ export default function ChatComposer({
   isSending = false
 }: ChatComposerProps) {
   const reduceMotion = useReducedMotion();
+  /** Framer Motion types disallow `exit={false}`; use no-op targets + zero duration instead. */
+  const actionBtnMotion = reduceMotion
+    ? {
+        initial: { opacity: 1, scale: 1 },
+        exit: { opacity: 1, scale: 1 },
+        transition: { duration: 0 },
+      }
+    : {
+        initial: { opacity: 0.85, scale: 0.96 },
+        exit: { opacity: 0, scale: 0.96 },
+        transition: { duration: 0.12 },
+      };
   const [isFocused, setIsFocused] = useState(false);
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
@@ -178,8 +190,9 @@ export default function ChatComposer({
         <div className="flex-1 relative">
           {isRecording ? (
             <motion.div
-              initial={reduceMotion ? false : { scale: 0.98, opacity: 0 }}
+              initial={reduceMotion ? { scale: 1, opacity: 1 } : { scale: 0.98, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
+              transition={{ duration: reduceMotion ? 0 : 0.15 }}
               className="relative flex h-[52px] min-w-0 items-center justify-between gap-3 overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/[0.12] via-fuchsia-500/10 to-primary/[0.08] px-3 shadow-inner sm:gap-4 sm:px-4"
             >
               {/* Soft animated sheen */}
@@ -286,10 +299,10 @@ export default function ChatComposer({
               <motion.button
                 key="send"
                 layout={false}
-                initial={reduceMotion ? false : { opacity: 0.85, scale: 0.96 }}
+                initial={actionBtnMotion.initial}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.12 }}
+                exit={actionBtnMotion.exit}
+                transition={actionBtnMotion.transition}
                 type="submit"
                 disabled={isSending}
                 className="bg-primary hover:bg-primary-hover text-white rounded-2xl p-3.5 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed h-[52px] w-[52px] flex items-center justify-center"
@@ -301,10 +314,10 @@ export default function ChatComposer({
               <motion.button
                 key="stop-rec"
                 layout={false}
-                initial={reduceMotion ? false : { opacity: 0.85, scale: 0.96 }}
+                initial={actionBtnMotion.initial}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={reduceMotion ? undefined : { opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.12 }}
+                exit={actionBtnMotion.exit}
+                transition={actionBtnMotion.transition}
                 type="button"
                 onClick={stopRecording}
                 className="bg-red-500 hover:bg-red-600 text-white rounded-2xl p-3.5 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 h-[52px] w-[52px] flex items-center justify-center"
@@ -316,10 +329,10 @@ export default function ChatComposer({
               <motion.button
                 key="mic"
                 layout={false}
-                initial={reduceMotion ? false : { opacity: 0.85, scale: 0.96 }}
+                initial={actionBtnMotion.initial}
                 animate={{ opacity: 1, scale: 1 }}
-                exit={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
-                transition={{ duration: 0.12 }}
+                exit={actionBtnMotion.exit}
+                transition={actionBtnMotion.transition}
                 type="button"
                 onClick={() => void startRecording()}
                 className="bg-surface/80 hover:bg-primary/10 text-muted hover:text-primary rounded-2xl p-3.5 transition-colors border border-border/50 shadow-sm h-[52px] w-[52px] flex items-center justify-center"

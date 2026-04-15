@@ -845,7 +845,10 @@ export default function ChatWindow() {
 
     let stream: MediaStream | null = null;
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true, signal: ac.signal });
+      const micConstraints = { audio: true, signal: ac.signal } as MediaStreamConstraints & {
+        signal?: AbortSignal;
+      };
+      stream = await navigator.mediaDevices.getUserMedia(micConstraints);
     } catch (err: unknown) {
       micAbortRef.current = null;
       if (session !== micSessionRef.current) return;
