@@ -1,7 +1,7 @@
 import { X, User as UserIcon, Mail, Calendar, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
-import Image from 'next/image';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface ContactInfoModalProps {
   isOpen: boolean;
@@ -45,17 +45,16 @@ export default function ContactInfoModal({ isOpen, onClose, contact }: ContactIn
             <div className="px-8 pb-8 relative z-10">
               {/* Avatar Section */}
               <div className="relative -mt-16 mb-6 flex justify-center">
-                <div className="w-32 h-32 relative">
-                  <Image
-                    src={contact.avatar || "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg"}
-                    alt="Profile"
-                    fill
+                <div className="relative h-32 w-32">
+                  <UserAvatar
+                    src={contact.avatar}
+                    name={contact.name || contact.email}
+                    variant="lg"
+                    className="h-32 w-32 border-4 border-surface shadow-xl ring-1 ring-border/30"
                     sizes="128px"
-                    className="rounded-full object-cover border-4 border-surface shadow-xl bg-surface"
-                    unoptimized={contact.avatar ? contact.avatar.includes('localhost') || contact.avatar.startsWith('data:') : false}
                   />
                   {isOnline && (
-                    <span className="absolute bottom-2 right-2 w-5 h-5 bg-green-500 border-4 border-surface rounded-full shadow-sm"></span>
+                    <span className="absolute bottom-2 right-2 h-5 w-5 rounded-full border-4 border-surface bg-green-500 shadow-sm" aria-hidden />
                   )}
                 </div>
               </div>

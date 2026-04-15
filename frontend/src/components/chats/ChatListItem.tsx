@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import Image from 'next/image';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface ChatListItemProps {
   item: any;
@@ -56,14 +56,13 @@ const ChatListItem = React.memo(function ChatListItem({ item, user, isSelected, 
         />
       )}
 
-      <div className="relative flex-shrink-0 w-12 h-12">
-        <Image
-          src={otherUser?.avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg'}
-          alt="avatar"
-          width={48}
-          height={48}
-          className={`rounded-full object-cover shadow-sm transition-transform duration-300 ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : 'group-hover:scale-105'}`}
-          unoptimized={otherUser?.avatar ? otherUser.avatar.includes('localhost') : false}
+      <div className="relative h-12 w-12 flex-shrink-0">
+        <UserAvatar
+          src={otherUser?.avatar}
+          name={otherUser?.name || otherUser?.email}
+          variant="md"
+          className={`h-12 w-12 shadow-sm transition-transform duration-300 ${isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background' : 'group-hover:scale-105'}`}
+          sizes="48px"
         />
         {isOnline && (
           <span className="absolute bottom-0 right-0 w-3.5 h-3.5 bg-green-500 border-2 border-background rounded-full shadow-sm"></span>

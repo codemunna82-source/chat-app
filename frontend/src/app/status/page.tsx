@@ -92,16 +92,17 @@ export default function StatusPage() {
 
   return (
     <MainLayout>
-      <div className="h-16 border-b border-border/60 flex items-center justify-between px-6 bg-surface/85 backdrop-blur-xl shadow-sm z-10 transition-colors duration-300">
+      <div className="flex min-h-0 w-full max-w-full flex-1 flex-col">
+      <div className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-border/60 bg-surface/85 px-4 shadow-sm backdrop-blur-xl transition-colors duration-300 sm:px-6">
         <div className="flex items-center gap-3">
-          <div className="p-2 bg-primary/10 rounded-xl">
-            <CircleDot className="w-5 h-5 text-primary" />
+          <div className="rounded-xl bg-primary/10 p-2">
+            <CircleDot className="h-5 w-5 text-primary" />
           </div>
-          <h2 className="text-xl font-bold text-foreground tracking-tight">Status</h2>
+          <h2 className="text-xl font-bold tracking-tight text-foreground">Status</h2>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto p-6 md:p-10 max-w-4xl mx-auto w-full pb-20">
+      <div className="mx-auto min-h-0 w-full max-w-4xl flex-1 overflow-y-auto overscroll-y-contain p-4 pb-24 sm:p-6 md:p-10 md:pb-20">
         <input
           type="file"
           ref={fileInputRef}
@@ -112,6 +113,7 @@ export default function StatusPage() {
 
         <MyStatusBanner user={user} onUploadClick={() => fileInputRef.current?.click()} />
         <StatusGrid statuses={statuses} onSelectStatus={openStatusViewer} />
+      </div>
       </div>
 
       <StatusUploadModal

@@ -8,6 +8,7 @@ import { useSocket } from '@/contexts/SocketContext';
 import api from '@/lib/api';
 import { Plus } from 'lucide-react';
 import { usePathname } from 'next/navigation';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { AnimatePresence } from 'framer-motion';
 import ChatSearchBar from '@/components/chats/ChatSearchBar';
 import ChatListItem from '@/components/chats/ChatListItem';
@@ -31,7 +32,12 @@ interface IChat {
   unreadCounts?: { [key: string]: number };
 }
 
-export default function Sidebar() {
+type SidebarProps = {
+  /** When list is shown in a mobile overlay, run after a chat row is chosen (including new DM). */
+  onPickChat?: () => void;
+};
+
+export default function Sidebar({ onPickChat }: SidebarProps) {
   const pathname = usePathname();
   const { user, mounted } = useProtectedRoute();
   const { chats, setChats, setSelectedChat, selectedChat } = useChatStore();
@@ -41,24 +47,12 @@ export default function Sidebar() {
   const [loadingChats, setLoadingChats] = useState(true);
   const [contacts, setContacts] = useState<any[]>([]);
   const [isNewChatOpen, setIsNewChatOpen] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const isMdUp = useBreakpoint('md');
+  const isMobile = !isMdUp;
 
   useEffect(() => {
     if (user?._id) initHiddenContacts(user._id);
   }, [user?._id, initHiddenContacts]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(max-width: 640px)');
-    const update = () => setIsMobile(mq.matches);
-    update();
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', update);
-      return () => mq.removeEventListener?.('change', update);
-    }
-    mq.addListener(update);
-    return () => mq.removeListener(update);
-  }, []);
 
   useEffect(() => {
     const fetchInitialData = async () => {
@@ -111,6 +105,7 @@ export default function Sidebar() {
       setChats((prev) => (prev.find((c) => c._id === data._id) ? prev : [data, ...prev]));
       setSelectedChat(data);
       setSearch(''); // Clear search on access
+      onPickChat?.();
     } catch (error) {
         console.error('Error fetching chat');
     }
@@ -118,6 +113,7 @@ export default function Sidebar() {
 
   const openChat = async (chat: any) => {
     setSelectedChat(chat);
+    onPickChat?.();
     if (user && chat.unreadCounts && chat.unreadCounts[user._id as string] > 0) {
        // Optimistically clear the unread count
        const updatedChats = chats.map((c) => {
@@ -190,7 +186,7 @@ export default function Sidebar() {
 
   return (
     <>
-    <div className="w-full md:w-[320px] lg:w-[380px] h-full min-w-0 flex flex-col bg-surface/80 backdrop-blur-xl border-r border-border/60 transition-colors duration-300">
+    <div className="flex h-full min-h-0 w-full min-w-0 flex-col transition-colors duration-300">
         <div className="h-16 flex items-center justify-between px-4 md:px-6 py-3 border-b border-border/50">
           <h2 className="font-bold text-xl text-foreground tracking-tight">Chats</h2>
           <button
@@ -208,7 +204,7 @@ export default function Sidebar() {
       )}
 
       {/* Chat List */}
-      <div className="flex-1 overflow-y-auto bg-background/60 transition-colors duration-300">
+      <div className="scrollbar-none flex-1 overflow-y-auto overscroll-y-contain bg-background/60 transition-colors duration-300">
         {(pathname === '/' || pathname === '') && (
         <AnimatePresence>
           {!loading ? (

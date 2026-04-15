@@ -50,8 +50,8 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
     socketInstance.on('connect', () => {
       console.log('Socket connected:', socketInstance.id);
-      // Setup user personal room FIRST
-      socketInstance.emit('setup', user);
+      // Setup user personal room FIRST (normalize id so it matches signaling rooms)
+      socketInstance.emit('setup', { ...user, _id: String(user._id) });
     });
 
     // Only expose socket to the app AFTER backend confirms setup is done
@@ -70,7 +70,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     // Handle reconnect -- re-setup the user's personal room
     socketInstance.on('reconnect', () => {
       console.log('Socket reconnected, re-emitting setup');
-      socketInstance.emit('setup', user);
+      socketInstance.emit('setup', { ...user, _id: String(user._id) });
     });
 
     socketInstance.on('online users', (users: string[]) => {

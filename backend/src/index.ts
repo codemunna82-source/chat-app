@@ -21,11 +21,14 @@ const server = http.createServer(app);
     const io = await initSocket(server);
     app.set('io', io);
 
-    await connectDB();
-
+    // Bind the port before Mongo connects so the client gets HTTP (e.g. 503) instead of "connection refused"
+    // while Atlas is slow or unreachable; see `db.ts` + `MONGODB_URI=in-memory` for local dev.
     server.listen(PORT, () => {
-      console.log(`Server is running on port ${PORT}`);
+      // eslint-disable-next-line no-console
+      console.log(`Server is listening on port ${PORT}`);
     });
+
+    await connectDB();
   } catch (err) {
     console.error('Failed to start server', err);
     process.exit(1);

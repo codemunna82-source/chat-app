@@ -14,6 +14,11 @@ const socketHost = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000'
 export const metadata: Metadata = {
   title: "Chat App | Real-Time Messaging",
   description: "A high-performance real-time chat application built with Next.js and Socket.io.",
+  icons: {
+    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    shortcut: "/favicon.svg",
+    apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+  },
   keywords: ["chat", "real-time", "messaging", "mern", "nextjs"],
   authors: [{ name: "Chat App Team" }],
   openGraph: {
@@ -35,7 +40,8 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   userScalable: false,
-  themeColor: "#ff6b4a",
+  themeColor: "#6366f1",
+  viewportFit: "cover",
 };
 
 export default function RootLayout({
@@ -44,18 +50,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning className="h-full">
       <head>
         <link rel="preconnect" href="https://icon-library.com" crossOrigin="anonymous" />
         <link rel="preconnect" href="http://localhost:5000" crossOrigin="anonymous" />
         <link rel="preconnect" href={apiHost} crossOrigin="anonymous" />
         <link rel="preconnect" href={socketHost} crossOrigin="anonymous" />
       </head>
-      <body className={`${sora.variable} ${fraunces.variable} min-h-screen text-foreground bg-background transition-colors duration-300 relative font-sans`}>
+      <body
+        className={`${sora.variable} ${fraunces.variable} relative flex h-full min-h-0 flex-col bg-background font-sans text-foreground transition-colors duration-300`}
+      >
         <ThemeProvider
           attribute="class"
           defaultTheme="system"
           enableSystem
+          storageKey="chat-ui-theme"
           disableTransitionOnChange={false}
         >
           <WebVitals />

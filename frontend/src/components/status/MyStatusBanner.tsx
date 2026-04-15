@@ -1,7 +1,7 @@
 'use client';
 
 import { Camera } from 'lucide-react';
-import Image from 'next/image';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface MyStatusBannerProps {
   user: any;
@@ -12,16 +12,13 @@ export default function MyStatusBanner({ user, onUploadClick }: MyStatusBannerPr
   return (
     <div className="flex items-center gap-4 mb-8 bg-surface/90 p-4 rounded-2xl border border-border/50 shadow-sm transition-colors duration-300 group hover:bg-surface-hover/60">
       <div className="relative">
-        <div className="w-14 h-14 relative shrink-0">
-          <Image
-            src={user?.avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg'}
-            alt="My Status"
-            fill
-            sizes="56px"
-            className="rounded-full object-cover border-2 border-border/50 shadow-sm"
-            unoptimized={user?.avatar?.includes('localhost')}
-          />
-        </div>
+        <UserAvatar
+          src={user?.avatar}
+          name={user?.name}
+          variant="md"
+          className="h-14 w-14 border-2 border-border/50 shadow-sm"
+          sizes="56px"
+        />
         <button
           onClick={onUploadClick}
           className="absolute bottom-0 right-0 bg-primary rounded-full p-1.5 border-2 border-surface hover:bg-primary-hover transition-all duration-300 shadow-lg hover:scale-110"

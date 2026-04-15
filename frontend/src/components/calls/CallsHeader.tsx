@@ -10,7 +10,7 @@ interface CallsHeaderProps {
 
 export default function CallsHeader({ canClear, isClearing = false, onClearAll }: CallsHeaderProps) {
   return (
-    <div className="h-16 border-b border-border/60 flex items-center justify-between px-6 bg-surface/85 backdrop-blur-xl z-10 shadow-sm transition-colors duration-300">
+    <div className="z-10 flex h-16 shrink-0 items-center justify-between border-b border-border/60 bg-surface/85 px-4 shadow-sm backdrop-blur-xl transition-colors duration-300 sm:px-6">
       <div className="flex items-center gap-3">
         <div className="p-2 bg-primary/10 rounded-xl">
           <PhoneCall className="w-5 h-5 text-primary" />

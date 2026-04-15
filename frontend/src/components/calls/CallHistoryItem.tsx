@@ -3,7 +3,7 @@
 import React from 'react';
 import { Phone, Video, ArrowUpRight, ArrowDownLeft, Clock, Trash2 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import Image from 'next/image';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface CallHistoryItemProps {
   call: any;
@@ -25,14 +25,13 @@ const CallHistoryItem = React.memo(function CallHistoryItem({ call, userId, inde
       className="flex items-center justify-between bg-surface/90 p-4 rounded-2xl border border-border/50 hover:bg-surface-hover/80 transition-all duration-300 group shadow-sm"
     >
       <div className="flex items-center gap-4">
-        <div className="w-12 h-12 relative shrink-0">
-          <Image
-            src={otherUser?.avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg'}
-            alt={otherUser?.name || 'Caller'}
-            fill
+        <div className="relative h-12 w-12 shrink-0">
+          <UserAvatar
+            src={otherUser?.avatar}
+            name={otherUser?.name || otherUser?.email || 'Contact'}
+            variant="md"
+            className="h-12 w-12 shadow-sm transition-transform duration-300 group-hover:scale-105"
             sizes="48px"
-            className="rounded-full object-cover shadow-sm group-hover:scale-105 transition-transform duration-300"
-            unoptimized={otherUser?.avatar?.includes('localhost')}
           />
         </div>
         <div>

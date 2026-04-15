@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import { Send, Image as ImageIcon, Paperclip, Mic, Square, Smile, FileText, Camera, MapPin, UserSquare } from 'lucide-react';
 import { Input } from '@/components/ui/input';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import dynamic from 'next/dynamic';
 
 // The composer expects parent components to handle sending messages, rendering media previews, etc.
@@ -42,6 +42,7 @@ export default function ChatComposer({
   effectsReady = true,
   isSending = false
 }: ChatComposerProps) {
+  const reduceMotion = useReducedMotion();
   const [isFocused, setIsFocused] = useState(false);
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isEmojiOpen, setIsEmojiOpen] = useState(false);
@@ -77,7 +78,9 @@ export default function ChatComposer({
   };
 
   return (
-    <div className={`p-3 md:p-4 bg-surface/90 ${effectsReady ? 'sm:backdrop-blur-md' : ''} border-t border-border/60 z-20 w-full relative transition-colors duration-300 shadow-[0_-18px_50px_-35px_rgba(0,0,0,0.25)]`}>
+    <div
+      className={`p-3 sm:p-3 md:p-4 glass-panel rounded-none border-t border-border/50 z-20 w-full relative transition-colors duration-300 pb-[max(0.75rem,env(safe-area-inset-bottom,0px))] sm:pb-3 md:pb-4 ${effectsReady ? 'supports-[backdrop-filter]:bg-[color-mix(in_srgb,var(--surface)_70%,transparent)]' : ''}`}
+    >
       <input
         type="file"
         ref={fileInputRef}
@@ -175,27 +178,49 @@ export default function ChatComposer({
         <div className="flex-1 relative">
           {isRecording ? (
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
+              initial={reduceMotion ? false : { scale: 0.98, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
-              className="h-[52px] bg-primary/10 text-primary flex items-center justify-between px-5 rounded-2xl border border-primary/20 shadow-inner"
+              className="relative flex h-[52px] min-w-0 items-center justify-between gap-3 overflow-hidden rounded-2xl border border-primary/25 bg-gradient-to-r from-primary/[0.12] via-fuchsia-500/10 to-primary/[0.08] px-3 shadow-inner sm:gap-4 sm:px-4"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(239,68,68,0.5)]"></div>
-                <span className="font-semibold tracking-wide tabular-nums text-foreground">
-                  {(Math.floor(recordingTime / 60)).toString().padStart(2, '0')}:{(recordingTime % 60).toString().padStart(2, '0')}
+              {/* Soft animated sheen */}
+              {!reduceMotion ? (
+                <motion.div
+                  aria-hidden
+                  className="pointer-events-none absolute inset-y-0 -left-1/3 w-1/2 skew-x-12 bg-gradient-to-r from-transparent via-white/25 to-transparent dark:via-white/10"
+                  animate={{ x: ['0%', '220%'] }}
+                  transition={{ duration: 2.2, repeat: Infinity, ease: 'linear' }}
+                />
+              ) : null}
+
+              <div className="relative z-[1] flex shrink-0 items-center gap-2.5 sm:gap-3">
+                <span className="relative flex h-9 w-9 items-center justify-center">
+                  {!reduceMotion ? (
+                    <>
+                      <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500/35 opacity-75" />
+                      <span className="absolute inline-flex h-[70%] w-[70%] animate-pulse rounded-full bg-red-500/50" />
+                    </>
+                  ) : null}
+                  <span className="relative block h-2.5 w-2.5 rounded-full bg-red-500 shadow-[0_0_12px_rgba(239,68,68,0.65)]" />
+                </span>
+                <span className="font-mono text-sm font-semibold tabular-nums tracking-tight text-foreground sm:text-[15px]">
+                  {Math.floor(recordingTime / 60)
+                    .toString()
+                    .padStart(2, '0')}
+                  :{(recordingTime % 60).toString().padStart(2, '0')}
                 </span>
               </div>
 
-              {/* Audio Visualizer */}
-              <div className="flex items-center gap-[3px] h-8 overflow-hidden flex-1 justify-end px-4">
+              <div
+                className="relative z-[1] flex h-9 min-w-0 flex-1 items-end justify-end gap-[2px] overflow-hidden pl-1 sm:h-10 sm:gap-[3px]"
+                aria-hidden
+              >
                 {audioData.map((val, i) => {
-                  const heightPct = Math.max(15, (val / 255) * 100);
+                  const h = Math.max(14, Math.round((val / 255) * 100));
                   return (
-                    <motion.div
+                    <div
                       key={i}
-                      animate={{ height: `${heightPct}%` }}
-                      transition={{ type: 'spring', damping: 20, stiffness: 300 }}
-                      className="w-1.5 bg-primary rounded-full"
+                      className="w-[2.5px] shrink-0 rounded-full bg-gradient-to-t from-primary/30 via-primary to-primary-hover/90 opacity-95 shadow-[0_0_6px_rgba(99,102,241,0.35)] transition-[height] duration-75 ease-out sm:w-[3px]"
+                      style={{ height: `${h}%` }}
                     />
                   );
                 })}
@@ -224,7 +249,7 @@ export default function ChatComposer({
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: 10 }}
                       id="composer-emoji"
-                      className="absolute bottom-14 left-0 z-50 w-[320px] rounded-2xl border border-border/50 bg-surface/90 backdrop-blur-xl shadow-2xl overflow-hidden"
+                      className="absolute bottom-14 left-0 z-50 w-[min(100vw-1.5rem,320px)] max-w-[calc(100vw-1.5rem)] rounded-2xl border border-border/50 glass-panel shadow-2xl overflow-hidden"
                     >
                       <EmojiPicker
                         onEmojiClick={(emojiData: { emoji?: string }) => {
@@ -255,13 +280,16 @@ export default function ChatComposer({
           )}
         </div>
 
-        <div className="flex items-center">
-          <AnimatePresence mode="popLayout" initial={false}>
+        <div className="flex shrink-0 items-center">
+          <AnimatePresence initial={false} mode="sync">
             {message.trim() || media ? (
               <motion.button
-                initial={{ scale: 0, rotate: -45 }}
-                animate={{ scale: 1, rotate: 0 }}
-                exit={{ scale: 0, rotate: 45 }}
+                key="send"
+                layout={false}
+                initial={reduceMotion ? false : { opacity: 0.85, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.12 }}
                 type="submit"
                 disabled={isSending}
                 className="bg-primary hover:bg-primary-hover text-white rounded-2xl p-3.5 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 disabled:opacity-50 disabled:hover:translate-y-0 disabled:cursor-not-allowed h-[52px] w-[52px] flex items-center justify-center"
@@ -271,9 +299,12 @@ export default function ChatComposer({
               </motion.button>
             ) : isRecording ? (
               <motion.button
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0 }}
+                key="stop-rec"
+                layout={false}
+                initial={reduceMotion ? false : { opacity: 0.85, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={reduceMotion ? undefined : { opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.12 }}
                 type="button"
                 onClick={stopRecording}
                 className="bg-red-500 hover:bg-red-600 text-white rounded-2xl p-3.5 transition-all shadow-md hover:shadow-xl hover:-translate-y-0.5 h-[52px] w-[52px] flex items-center justify-center"
@@ -283,11 +314,14 @@ export default function ChatComposer({
               </motion.button>
             ) : (
               <motion.button
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                exit={{ scale: 0 }}
+                key="mic"
+                layout={false}
+                initial={reduceMotion ? false : { opacity: 0.85, scale: 0.96 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={reduceMotion ? false : { opacity: 0, scale: 0.96 }}
+                transition={{ duration: 0.12 }}
                 type="button"
-                onClick={startRecording}
+                onClick={() => void startRecording()}
                 className="bg-surface/80 hover:bg-primary/10 text-muted hover:text-primary rounded-2xl p-3.5 transition-colors border border-border/50 shadow-sm h-[52px] w-[52px] flex items-center justify-center"
                 aria-label="Start voice recording"
               >

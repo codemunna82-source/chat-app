@@ -20,6 +20,9 @@ const nextConfig = {
   experimental: {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
+  async redirects() {
+    return [{ source: '/favicon.ico', destination: '/favicon.svg', permanent: false }];
+  },
   images: {
     remotePatterns: [
       {

@@ -13,7 +13,7 @@ interface CallHistoryListProps {
 
 export default function CallHistoryList({ calls, userId, onCall, onDelete }: CallHistoryListProps) {
   return (
-    <div className="flex-1 overflow-y-auto p-4 md:p-8 max-w-4xl mx-auto w-full z-10">
+    <div className="mx-auto min-h-0 w-full max-w-4xl flex-1 overflow-y-auto overscroll-y-contain p-4 pb-24 md:p-8 md:pb-12">
       <div className="mb-6 px-2 text-muted flex items-center gap-3">
         <PhoneCall className="w-5 h-5 text-primary" />
         <p className="text-sm font-medium">Your voice and video calls will appear here.</p>
