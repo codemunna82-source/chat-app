@@ -14,6 +14,7 @@ const reactSchema = zod_1.z.object({
     emoji: zod_1.z.string().min(1).max(8),
 });
 router.route('/:chatId').get(auth_middleware_1.protect, message_controller_1.allMessages);
+router.route('/chat/:chatId').delete(auth_middleware_1.protect, message_controller_1.clearChatMessages);
 router.route('/:id').delete(auth_middleware_1.protect, message_controller_1.deleteMessage);
 router.route('/:id/react').put(auth_middleware_1.protect, (0, validate_middleware_1.validateBody)(reactSchema), message_controller_1.toggleReaction);
 router.route('/').post(auth_middleware_1.protect, upload_middleware_1.upload.single('media'), message_controller_1.sendMessage);

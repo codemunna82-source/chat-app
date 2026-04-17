@@ -53,17 +53,19 @@ export default function CallsPage() {
 
   return (
     <MainLayout>
-      <CallsHeader
-        canClear={calls.length > 0}
-        isClearing={isClearing}
-        onClearAll={() => setClearModalOpen(true)}
-      />
-      <CallHistoryList
-        calls={calls}
-        userId={user?._id || ''}
-        onCall={initiateCall}
-        onDelete={deleteCallHistoryItem}
-      />
+      <div className="flex min-h-0 w-full max-w-full flex-1 flex-col">
+        <CallsHeader
+          canClear={calls.length > 0}
+          isClearing={isClearing}
+          onClearAll={() => setClearModalOpen(true)}
+        />
+        <CallHistoryList
+          calls={calls}
+          userId={user?._id || ''}
+          onCall={initiateCall}
+          onDelete={deleteCallHistoryItem}
+        />
+      </div>
       <ConfirmModal
         isOpen={clearModalOpen}
         title="Clear call history?"

@@ -7,6 +7,10 @@ const WINDOW_MS = 60 * 1000; // 1 minute
 const MAX_REQUESTS = 120; // per IP per window
 const hits = new Map();
 const rateLimiter = (req, res, next) => {
+    // Do not count CORS preflight toward the limit (429 on OPTIONS breaks browser requests).
+    if (req.method === 'OPTIONS') {
+        return next();
+    }
     const now = Date.now();
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const timestamps = hits.get(ip) || [];

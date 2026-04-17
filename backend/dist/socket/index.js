@@ -14,9 +14,21 @@ const socket_io_1 = require("socket.io");
 const redis_1 = require("redis");
 const redis_adapter_1 = require("@socket.io/redis-adapter");
 const initSocket = (server) => __awaiter(void 0, void 0, void 0, function* () {
+    const rawClientUrls = process.env.CLIENT_URL || process.env.CLIENT_URI || 'http://localhost:3000';
+    const allowedOrigins = rawClientUrls
+        .split(/[;,]/)
+        .map(origin => origin.trim())
+        .filter(Boolean);
+    const allowAnyOrigin = allowedOrigins.includes('*');
     const io = new socket_io_1.Server(server, {
         cors: {
-            origin: process.env.CLIENT_URL || 'http://localhost:3000',
+            origin: (origin, callback) => {
+                if (!origin)
+                    return callback(null, true);
+                if (allowAnyOrigin || allowedOrigins.includes(origin))
+                    return callback(null, true);
+                return callback(new Error(`Socket CORS blocked for origin: ${origin}`));
+            },
             methods: ['GET', 'POST'],
             credentials: true,
         },
@@ -43,16 +55,17 @@ const initSocket = (server) => __awaiter(void 0, void 0, void 0, function* () {
             var _a;
             if (!userData || !userData._id)
                 return;
-            socket.join(userData._id);
+            const userId = String(userData._id);
+            socket.join(userId);
             // Add socket to user's set of active sockets
-            if (!onlineUsers.has(userData._id)) {
-                onlineUsers.set(userData._id, new Set());
+            if (!onlineUsers.has(userId)) {
+                onlineUsers.set(userId, new Set());
             }
-            (_a = onlineUsers.get(userData._id)) === null || _a === void 0 ? void 0 : _a.add(socket.id);
+            (_a = onlineUsers.get(userId)) === null || _a === void 0 ? void 0 : _a.add(socket.id);
             socket.emit('connected');
             // Broadcast entire array of online user IDs
             io.emit('online users', Array.from(onlineUsers.keys()));
-            console.log(`User ${userData._id} connected to personal room (Tab ID: ${socket.id})`);
+            console.log(`User ${userId} connected to personal room (Tab ID: ${socket.id})`);
         });
         // Handle joining a specific chat
         socket.on('join chat', (room) => {
@@ -70,30 +83,45 @@ const initSocket = (server) => __awaiter(void 0, void 0, void 0, function* () {
             chat.users.forEach((user) => {
                 if (user._id === newMessageReceived.sender._id)
                     return;
-                socket.in(user._id).emit('message received', newMessageReceived);
+                socket.in(String(user._id)).emit('message received', newMessageReceived);
             });
         });
         // WebRTC Signaling
         socket.on('call user', (data) => {
-            const targetRoom = data.userToCall;
+            const targetRoom = (data === null || data === void 0 ? void 0 : data.userToCall) != null ? String(data.userToCall) : '';
+            if (!targetRoom)
+                return;
             const socketsInRoom = io.sockets.adapter.rooms.get(targetRoom);
             console.log(`[CALL] Caller ${data.from} calling ${targetRoom}`);
             console.log(`[CALL] Sockets in target room: ${socketsInRoom ? Array.from(socketsInRoom).join(', ') : 'NONE (room empty!)'}`);
             console.log(`[CALL] All rooms:`, Array.from(io.sockets.adapter.rooms.keys()).filter(r => !r.startsWith('/')));
             io.to(targetRoom).emit('call user', {
                 signal: data.signalData,
-                from: data.from,
+                from: data.from != null ? String(data.from) : data.from,
                 name: data.name,
                 avatar: data.avatar,
-                type: data.type
+                type: data.type,
             });
             console.log(`[CALL] Event emitted to room ${targetRoom}`);
         });
         socket.on('answer call', (data) => {
-            io.to(data.to).emit('call accepted', data.signal);
+            if ((data === null || data === void 0 ? void 0 : data.to) == null)
+                return;
+            io.to(String(data.to)).emit('call accepted', data.signal);
+        });
+        /** WebRTC trickle ICE (video/audio calls only; does not affect chat). */
+        socket.on('call ice-candidate', (data) => {
+            if ((data === null || data === void 0 ? void 0 : data.to) == null || (data === null || data === void 0 ? void 0 : data.from) == null || data.candidate == null)
+                return;
+            io.to(String(data.to)).emit('call ice-candidate', {
+                from: String(data.from),
+                candidate: data.candidate,
+            });
         });
         socket.on('end call', (data) => {
-            io.to(data.to).emit('call ended');
+            if ((data === null || data === void 0 ? void 0 : data.to) == null)
+                return;
+            io.to(String(data.to)).emit('call ended');
         });
         socket.on('disconnect', () => {
             // Find which user owned this socket

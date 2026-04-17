@@ -35,7 +35,13 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
       return;
     }
 
-    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+    const socketUrl = (() => {
+      if (process.env.NEXT_PUBLIC_SOCKET_URL) return process.env.NEXT_PUBLIC_SOCKET_URL;
+      if (typeof window !== 'undefined') return window.location.origin;
+      if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
+      if (process.env.RENDER_EXTERNAL_URL) return `https://${process.env.RENDER_EXTERNAL_URL}`;
+      return 'http://localhost:5000';
+    })();
     console.log('Connecting to socket at:', socketUrl);
     
     const socketInstance = io(socketUrl, {
@@ -44,8 +50,8 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
 
     socketInstance.on('connect', () => {
       console.log('Socket connected:', socketInstance.id);
-      // Setup user personal room FIRST
-      socketInstance.emit('setup', user);
+      // Setup user personal room FIRST (normalize id so it matches signaling rooms)
+      socketInstance.emit('setup', { ...user, _id: String(user._id) });
     });
 
     // Only expose socket to the app AFTER backend confirms setup is done
@@ -64,7 +70,7 @@ export const SocketProvider = ({ children }: { children: React.ReactNode }) => {
     // Handle reconnect -- re-setup the user's personal room
     socketInstance.on('reconnect', () => {
       console.log('Socket reconnected, re-emitting setup');
-      socketInstance.emit('setup', user);
+      socketInstance.emit('setup', { ...user, _id: String(user._id) });
     });
 
     socketInstance.on('online users', (users: string[]) => {

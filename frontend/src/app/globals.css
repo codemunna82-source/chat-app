@@ -13,55 +13,170 @@
   --font-display: var(--font-display);
 }
 
-:root {
-  /* Light Mode Palette: warm citrus + soft cream */
-  --background: #fff6ed;
-  --foreground: #2b1d14;
+/* Default = light (next-themes adds html.dark / html.light) — web-first mesh + glass tokens */
+:root,
+html.light {
+  --background: #eef2ff;
+  --foreground: #161022;
   --surface: #ffffff;
-  --surface-hover: #fff0e3;
-  --border: #f2d7c5;
-  --primary: #ff6b4a;
-  --primary-hover: #ff825f;
-  --muted: #7c6a5a;
-  --accent: #f5b042;
-  --accent-2: #48c7b7;
+  --surface-hover: #e8ecff;
+  --border: #d4d8ec;
+  --primary: #6366f1;
+  --primary-hover: #818cf8;
+  --muted: #5c5678;
+  --accent: #f472b6;
+  --accent-2: #22d3ee;
+  --mesh-a: color-mix(in srgb, #6366f1 22%, transparent);
+  --mesh-b: color-mix(in srgb, #a855f7 18%, transparent);
+  --mesh-c: color-mix(in srgb, #22d3ee 14%, transparent);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    /* Dark Mode Palette: cocoa ink + warm neon */
-    --background: #121012;
-    --foreground: #fff6ed;
-    --surface: #1b1618;
-    --surface-hover: #251f22;
-    --border: #352c32;
-    --primary: #ff8a6b;
-    --primary-hover: #ffa081;
-    --muted: #c2b4a6;
-    --accent: #f6c262;
-    --accent-2: #64d2c3;
-  }
+html.dark {
+  --background: #0a0910;
+  --foreground: #f1f0ff;
+  --surface: #14121f;
+  --surface-hover: #1e1b2e;
+  --border: #2a2740;
+  --primary: #818cf8;
+  --primary-hover: #a5b4fc;
+  --muted: #9d97b8;
+  --accent: #f472b6;
+  --accent-2: #22d3ee;
+  --mesh-a: color-mix(in srgb, #6366f1 28%, transparent);
+  --mesh-b: color-mix(in srgb, #7c3aed 22%, transparent);
+  --mesh-c: color-mix(in srgb, #0ea5e9 16%, transparent);
 }
 
-:root.dark {
-  /* Explicit Dark Mode Overrides for next-themes */
-  --background: #121012;
-  --foreground: #fff6ed;
-  --surface: #1b1618;
-  --surface-hover: #251f22;
-  --border: #352c32;
-  --primary: #ff8a6b;
-  --primary-hover: #ffa081;
-  --muted: #c2b4a6;
-  --accent: #f6c262;
-  --accent-2: #64d2c3;
+html {
+  height: 100%;
 }
 
 body {
   background-color: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans), ui-sans-serif, system-ui;
-  /* Removed: transition on body causes CLS on first paint (layout recalc fires before content is stable) */
+  overflow-x: hidden;
+  -webkit-tap-highlight-color: color-mix(in srgb, var(--primary) 18%, transparent);
+  transition: background-color 0.35s ease, color 0.35s ease;
+}
+
+/* Main app (MainLayout): one viewport — no document scroll; inner panels scroll */
+html.app-shell-lock {
+  overflow: hidden;
+  overscroll-behavior: none;
+  height: 100%;
+  height: 100dvh;
+  max-height: 100dvh;
+}
+
+@supports (height: 100svh) {
+  html.app-shell-lock {
+    height: 100svh;
+    max-height: 100svh;
+  }
+}
+
+html.app-shell-lock body {
+  min-height: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+/**
+ * Fills visible viewport (svh when supported) — avoids chrome taller than 100% + clips from 3D tilt.
+ */
+.app-shell-viewport {
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+}
+
+@supports (height: 100svh) {
+  .app-shell-viewport {
+    height: 100svh;
+    max-height: 100svh;
+  }
+}
+
+/**
+ * Hide scrollbar chrome but keep scrolling (wheel / touch / keyboard).
+ * Use on secondary columns so the main pane is the only visible vertical bar.
+ */
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+/* Ambient mesh (web): linear base + slow radial drift — disabled on reduced-motion / low-end */
+.liquid-mesh-bg,
+.water-page-bg {
+  position: relative;
+  isolation: isolate;
+  background-image: linear-gradient(165deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, #6366f1) 52%, var(--background) 100%);
+}
+.liquid-mesh-bg::before,
+.water-page-bg::before {
+  content: '';
+  position: absolute;
+  inset: -8%;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 90% 70% at 15% 20%, var(--mesh-a), transparent 55%),
+    radial-gradient(ellipse 80% 60% at 85% 15%, var(--mesh-b), transparent 50%),
+    radial-gradient(ellipse 70% 55% at 50% 95%, var(--mesh-c), transparent 52%);
+  opacity: 0.95;
+  animation: liquid-mesh-drift 32s ease-in-out infinite alternate;
+}
+.liquid-mesh-bg::after,
+.water-page-bg::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+  mix-blend-mode: overlay;
+}
+
+@keyframes liquid-mesh-drift {
+  0% {
+    transform: translate(0%, 0%) scale(1);
+  }
+  100% {
+    transform: translate(-2%, 1.5%) scale(1.04);
+  }
+}
+
+:root[data-reduced-motion="1"] .liquid-mesh-bg::before,
+:root[data-reduced-motion="1"] .water-page-bg::before,
+:root[data-low-end="1"] .liquid-mesh-bg::before,
+:root[data-low-end="1"] .water-page-bg::before {
+  animation: none !important;
+}
+
+:root[data-low-end="1"] .liquid-mesh-bg::after,
+:root[data-low-end="1"] .water-page-bg::after {
+  display: none;
+}
+
+/* Safe areas (notched phones) */
+.pb-safe {
+  padding-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+}
+.pt-safe {
+  padding-top: max(0.5rem, env(safe-area-inset-top, 0px));
+}
+.mb-tab-safe {
+  margin-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
 }
 
 h1, h2, h3, h4, .font-display {
@@ -83,7 +198,11 @@ h1, h2, h3, h4, .font-display {
   scroll-behavior: auto !important;
 }
 
+:root[data-low-end="1"] .glass-liquid,
+:root[data-low-end="1"] .glass-bubble-sent,
+:root[data-low-end="1"] .glass-bubble-received,
 :root[data-low-end="1"] .glass-panel,
+:root[data-low-end="1"] .glass-card-float,
 :root[data-low-end="1"] .backdrop-blur-sm,
 :root[data-low-end="1"] .backdrop-blur-md,
 :root[data-low-end="1"] .backdrop-blur-lg,
@@ -111,22 +230,144 @@ h1, h2, h3, h4, .font-display {
 
 /* Glassmorphism Utilities */
 .glass-panel {
-  background: color-mix(in srgb, var(--surface) 82%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
-  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  box-shadow: 0 12px 40px -30px color-mix(in srgb, var(--foreground) 25%, transparent);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
+  backdrop-filter: blur(18px) saturate(1.35);
+  -webkit-backdrop-filter: blur(18px) saturate(1.35);
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--foreground) 6%, transparent) inset,
+    0 18px 48px -32px color-mix(in srgb, var(--foreground) 28%, transparent);
+}
+
+.glass-card-float {
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(22px) saturate(1.4);
+  -webkit-backdrop-filter: blur(22px) saturate(1.4);
+  border: 1px solid color-mix(in srgb, var(--border) 45%, transparent);
+  box-shadow:
+    0 1px 0 color-mix(in srgb, var(--foreground) 8%, transparent) inset,
+    0 24px 60px -36px color-mix(in srgb, var(--foreground) 35%, transparent);
+}
+
+/* Layered “liquid glass” for floating web panels */
+.glass-liquid {
+  position: relative;
+  background: linear-gradient(
+    155deg,
+    color-mix(in srgb, var(--surface) 58%, transparent) 0%,
+    color-mix(in srgb, var(--surface) 38%, transparent) 100%
+  );
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, #fff 22%, transparent) inset,
+    0 -1px 0 0 color-mix(in srgb, var(--foreground) 8%, transparent) inset,
+    0 28px 64px -36px color-mix(in srgb, var(--foreground) 38%, transparent);
+}
+html.dark .glass-liquid {
+  border-color: color-mix(in srgb, #fff 10%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, #fff 6%, transparent) inset,
+    0 -1px 0 0 color-mix(in srgb, #000 35%, transparent) inset,
+    0 32px 70px -40px color-mix(in srgb, #000 55%, transparent);
+}
+
+/* Chat bubbles — glass + depth (subtle 3D on desktop hover) */
+.glass-bubble-sent {
+  background: linear-gradient(145deg, color-mix(in srgb, var(--primary) 88%, #fff) 0%, var(--primary-hover) 100%);
+  color: #fff;
+  border: 1px solid color-mix(in srgb, #fff 28%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, #fff 35%, transparent) inset,
+    0 14px 36px -18px color-mix(in srgb, var(--primary) 55%, transparent);
+  backdrop-filter: blur(10px) saturate(1.2);
+  -webkit-backdrop-filter: blur(10px) saturate(1.2);
+}
+.glass-bubble-received {
+  background: linear-gradient(160deg, color-mix(in srgb, var(--surface) 72%, transparent) 0%, color-mix(in srgb, var(--surface) 48%, transparent) 100%);
+  color: var(--foreground);
+  border: 1px solid color-mix(in srgb, var(--foreground) 10%, transparent);
+  box-shadow:
+    0 1px 0 0 color-mix(in srgb, #fff 40%, transparent) inset,
+    0 16px 40px -24px color-mix(in srgb, var(--foreground) 22%, transparent);
+  backdrop-filter: blur(14px) saturate(1.35);
+  -webkit-backdrop-filter: blur(14px) saturate(1.35);
+}
+@media (min-width: 768px) {
+  .glass-bubble-sent,
+  .glass-bubble-received {
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .group:hover .glass-bubble-sent,
+  .group:hover .glass-bubble-received {
+    transform: translateY(-2px) scale(1.01);
+  }
+  .group:hover .glass-bubble-sent {
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, #fff 40%, transparent) inset,
+      0 20px 48px -16px color-mix(in srgb, var(--primary) 65%, transparent);
+  }
+  .group:hover .glass-bubble-received {
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, #fff 45%, transparent) inset,
+      0 22px 50px -18px color-mix(in srgb, var(--foreground) 28%, transparent);
+  }
+}
+
+/* Panel micro-lift (web-safe depth) */
+.panel-lift {
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+@media (min-width: 1024px) {
+  .panel-lift:hover {
+    transform: translateY(-2px) scale(1.005);
+    box-shadow:
+      0 1px 0 0 color-mix(in srgb, #fff 18%, transparent) inset,
+      0 28px 60px -32px color-mix(in srgb, var(--foreground) 30%, transparent);
+  }
 }
 
 .glass-input {
-  background: color-mix(in srgb, var(--surface) 70%, transparent);
-  border: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
-  transition: all 0.2s ease;
+  background: color-mix(in srgb, var(--surface) 68%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border) 50%, transparent);
+  transition: border-color 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
 }
 .glass-input:focus {
-  border-color: var(--primary);
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 20%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 65%, var(--border));
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
+}
+
+/* Subtle liquid press (CSS-only; respects reduced-motion via global rules) */
+@keyframes liquid-ripple {
+  0% {
+    transform: scale(0.35);
+    opacity: 0.45;
+  }
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
+  }
+}
+.btn-liquid {
+  position: relative;
+  overflow: hidden;
+}
+.btn-liquid::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(circle at var(--rx, 50%) var(--ry, 50%), color-mix(in srgb, var(--primary) 35%, transparent), transparent 55%);
+  opacity: 0;
+  transform: scale(0.2);
+  transition: opacity 0.35s ease;
+}
+.btn-liquid:active::after {
+  opacity: 1;
+  animation: liquid-ripple 0.55s ease-out forwards;
 }
 
 /* Performance helpers */

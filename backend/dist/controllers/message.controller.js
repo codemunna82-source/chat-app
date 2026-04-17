@@ -12,7 +12,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.toggleReaction = exports.deleteMessage = exports.sendMessage = exports.allMessages = void 0;
+exports.clearChatMessages = exports.toggleReaction = exports.deleteMessage = exports.sendMessage = exports.allMessages = void 0;
 const message_model_1 = __importDefault(require("../models/message.model"));
 const user_model_1 = __importDefault(require("../models/user.model"));
 const chat_model_1 = __importDefault(require("../models/chat.model"));
@@ -175,3 +175,34 @@ const toggleReaction = (req, res) => __awaiter(void 0, void 0, void 0, function*
     }
 });
 exports.toggleReaction = toggleReaction;
+// @desc    Clear all messages in a chat (keeps chat, removes history)
+// @route   DELETE /api/message/chat/:chatId
+// @access  Private
+const clearChatMessages = (req, res) => __awaiter(void 0, void 0, void 0, function* () {
+    try {
+        const chatId = req.params.chatId;
+        const chat = yield chat_model_1.default.findOne({
+            _id: chatId,
+            users: { $elemMatch: { $eq: req.user._id } },
+        });
+        if (!chat) {
+            res.status(404).json({ message: 'Chat not found or you do not have permission' });
+            return;
+        }
+        yield message_model_1.default.deleteMany({ chat: chatId });
+        chat.latestMessage = undefined;
+        chat.unreadCounts = new Map();
+        yield chat.save();
+        const io = req.app.get('io');
+        if (io) {
+            chat.users.forEach((uId) => {
+                io.to(uId.toString()).emit('chat cleared', chatId);
+            });
+        }
+        res.status(200).json({ message: 'Chat cleared successfully' });
+    }
+    catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+});
+exports.clearChatMessages = clearChatMessages;

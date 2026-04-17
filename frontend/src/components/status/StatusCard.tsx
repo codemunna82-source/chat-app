@@ -2,7 +2,8 @@
 
 import React from 'react';
 import { motion } from 'framer-motion';
-import Image from 'next/image';
+import { resolvePublicFileUrl } from '@/lib/publicFileUrl';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
 interface StatusCardProps {
   status: any;
@@ -22,13 +23,13 @@ const StatusCard = React.memo(function StatusCard({ status, index, onSelect }: S
       <div className="h-48 w-full bg-background relative overflow-hidden">
         {status.mediaType === 'image' ? (
           <img
-            src={`http://localhost:5000${status.mediaUrl}`}
+            src={resolvePublicFileUrl(status.mediaUrl)}
             className="w-full h-full object-cover opacity-80 group-hover:opacity-100 group-hover:scale-105 transition-all duration-500"
             alt={status.caption || 'Status'}
           />
         ) : (
           <video
-            src={`http://localhost:5000${status.mediaUrl}`}
+            src={resolvePublicFileUrl(status.mediaUrl)}
             className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity duration-300"
           />
         )}
@@ -37,16 +38,13 @@ const StatusCard = React.memo(function StatusCard({ status, index, onSelect }: S
         </div>
       </div>
       <div className="p-3 flex items-center gap-3">
-        <div className="w-8 h-8 relative shrink-0">
-          <Image
-            src={status.user.avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg'}
-            alt={status.user.name}
-            fill
-            sizes="32px"
-            className="rounded-full border border-border/50 object-cover"
-            unoptimized={status.user.avatar?.includes('localhost')}
-          />
-        </div>
+        <UserAvatar
+          src={status.user?.avatar}
+          name={status.user?.name}
+          variant="sm"
+          className="h-8 w-8 border border-border/50"
+          sizes="32px"
+        />
         <div className="flex-1 min-w-0">
           <p className="text-sm text-foreground font-medium truncate">{status.user.name}</p>
           <p className="text-[10px] text-muted">{new Date(status.createdAt).toLocaleString()}</p>

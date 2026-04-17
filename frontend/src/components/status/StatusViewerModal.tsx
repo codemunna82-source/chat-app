@@ -1,7 +1,8 @@
 import { AnimatePresence, motion } from 'framer-motion';
 import { X } from 'lucide-react';
-import Image from 'next/image';
 import { createPortal } from 'react-dom';
+import { UserAvatar } from '@/components/ui/UserAvatar';
+import { resolvePublicFileUrl } from '@/lib/publicFileUrl';
 
 interface StatusViewerModalProps {
   isOpen: boolean;
@@ -45,13 +46,13 @@ export default function StatusViewerModal({
             <div className="bg-background">
               {status.mediaType === 'image' ? (
                 <img
-                  src={`http://localhost:5000${status.mediaUrl}`}
+                  src={resolvePublicFileUrl(status.mediaUrl)}
                   className="w-full max-h-[70vh] object-contain bg-black"
                   alt={status.caption || 'Status'}
                 />
               ) : (
                 <video
-                  src={`http://localhost:5000${status.mediaUrl}`}
+                  src={resolvePublicFileUrl(status.mediaUrl)}
                   className="w-full max-h-[70vh] object-contain bg-black"
                   controls
                   autoPlay
@@ -60,16 +61,13 @@ export default function StatusViewerModal({
             </div>
 
             <div className="p-5 flex items-center gap-3">
-              <div className="w-9 h-9 relative shrink-0">
-                <Image
-                  src={status.user?.avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg'}
-                  alt={status.user?.name || 'User'}
-                  fill
-                  sizes="36px"
-                  className="rounded-full border border-border/50 object-cover"
-                  unoptimized={status.user?.avatar?.includes('localhost')}
-                />
-              </div>
+              <UserAvatar
+                src={status.user?.avatar}
+                name={status.user?.name}
+                variant="md"
+                className="h-9 w-9 border border-border/50"
+                sizes="36px"
+              />
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-foreground font-semibold truncate">
                   {status.user?.name || 'Unknown'}

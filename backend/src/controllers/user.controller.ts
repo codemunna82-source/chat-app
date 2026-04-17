@@ -13,41 +13,54 @@ export const registerUser = async (req: Request, res: Response): Promise<void> =
     return;
   }
 
-  const userExists = await User.findOne({ email });
+  try {
+    const userExists = await User.findOne({ email });
 
-  if (userExists) {
-    res.status(400).json({ message: 'User already exists' });
-    return;
-  }
-
-  const user = await User.create({
-    name,
-    email,
-    password,
-    avatar: avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg',
-  });
-
-  if (user) {
-    const newUserData = {
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-      about: user.about,
-    };
-    
-    // Broadcast the new user to all connected clients
-    const io = req.app.get('io');
-    if (io) {
-       io.emit('new user registered', newUserData);
+    if (userExists) {
+      res.status(400).json({ message: 'User already exists' });
+      return;
     }
 
-    res.status(201).json({
-      ...newUserData,
-      token: generateToken(user._id as any),
+    const user = await User.create({
+      name,
+      email,
+      password,
+      avatar: avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg',
     });
-  } else {
-    res.status(400).json({ message: 'Failed to create user' });
+
+    if (user) {
+      const newUserData = {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+        about: user.about,
+      };
+
+      const io = req.app.get('io');
+      if (io) {
+        io.emit('new user registered', newUserData);
+      }
+
+      res.status(201).json({
+        ...newUserData,
+        token: generateToken(user._id as any),
+      });
+    } else {
+      res.status(400).json({ message: 'Failed to create user' });
+    }
+  } catch (err: unknown) {
+    const e = err as { code?: number; name?: string; message?: string };
+    if (e.code === 11000) {
+      res.status(400).json({ message: 'User already exists' });
+      return;
+    }
+    if (e.name === 'MongoServerSelectionError' || e.name === 'MongoNetworkError' || /MongoNetwork/i.test(String(e.message))) {
+      res.status(503).json({ message: 'Database unavailable. Check MONGODB_URI and network access.' });
+      return;
+    }
+    console.error('[registerUser]', err);
+    res.status(500).json({ message: 'Registration failed. Please try again.' });
   }
 };
 

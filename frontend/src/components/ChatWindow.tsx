@@ -1,8 +1,11 @@
 'use client';
 
-import React, { useState, useEffect, useRef, useTransition, useCallback } from 'react';
-import { MoreVertical, Phone, Video, ArrowLeft, MessageSquare, Check, CheckCheck, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useRef, useTransition, useCallback, startTransition } from 'react';
+import { flushSync } from 'react-dom';
+import { MoreVertical, Phone, Video, ArrowLeft, MessageSquare, Check, CheckCheck, Trash2, PanelLeft } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
+import { GlassCard } from '@/components/ui/GlassCard';
+import { ChatBubble } from '@/components/ui/ChatBubble';
 import { useChatStore } from '@/store/useChatStore';
 import { useAuthStore } from '@/store/useAuthStore';
 import { useHiddenContactsStore } from '@/store/useHiddenContactsStore';
@@ -13,17 +16,34 @@ import { compressImage } from '@/utils/imageCompression';
 import { playMessageSound } from '@/utils/audioTones';
 import { motion, AnimatePresence } from 'framer-motion';
 import dynamic from 'next/dynamic';
+import ChatComposer from './ChatComposer';
 import api from '@/lib/api';
+import { resolvePublicFileUrl } from '@/lib/publicFileUrl';
 import NextImage from 'next/image';
+import { useMobileChatListDrawer } from '@/contexts/MobileChatListDrawerContext';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
+import { useRichEffectsEnabled } from '@/hooks/useRichEffectsEnabled';
+import { useChatEdgeSwipe } from '@/hooks/useChatEdgeSwipe';
+import { Glass3DButton } from '@/components/three/Glass3DButton';
+import { MobileCard } from '@/components/ui/MobileCard';
+import { GlassPanel } from '@/components/ui/GlassPanel';
+import { UserAvatar } from '@/components/ui/UserAvatar';
 
-const ChatComposer = dynamic(() => import('./ChatComposer'), {
-  ssr: false,
-  loading: () => <div className="h-[84px] md:h-[92px]" />
-});
 const ContactInfoModal = dynamic(() => import('./ContactInfoModal'), { ssr: false });
 const ConfirmModal = dynamic(() => import('./ConfirmModal'), { ssr: false });
 const Image = NextImage;
 const REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
+function pickAudioMimeTypeForRecorder(): string | undefined {
+  if (typeof MediaRecorder === 'undefined' || !MediaRecorder.isTypeSupported) return undefined;
+  const candidates = [
+    'audio/webm;codecs=opus',
+    'audio/webm',
+    'audio/mp4',
+    'audio/ogg;codecs=opus',
+  ];
+  return candidates.find((t) => MediaRecorder.isTypeSupported(t));
+}
 
 type Reaction = { emoji: string; user: string | { _id?: string } };
 type ChatUser = { _id: string; name?: string; avatar?: string; email?: string; about?: string };
@@ -37,6 +57,7 @@ type ChatMessage = {
   createdAt: string;
   status?: 'sent' | 'delivered' | 'read';
   reactions?: Reaction[];
+  optimistic?: boolean;
 };
 type Chat = {
   _id: string;
@@ -60,6 +81,7 @@ interface MessageBubbleProps {
   setPickerMsgId: React.Dispatch<React.SetStateAction<string | null>>;
   handleReact: (msgId: string, emoji: string) => void;
   handleDeleteMessage: (msgId: string) => void;
+  resolveMediaUrl: (url?: string | null) => string;
 }
 
 
@@ -74,7 +96,8 @@ const MessageBubble = React.memo(function MessageBubble({
   pickerMsgId,
   setPickerMsgId,
   handleReact,
-  handleDeleteMessage
+  handleDeleteMessage,
+  resolveMediaUrl,
 }: MessageBubbleProps) {
   const borderRadiusClasses = isMe
     ? `rounded-[20px] ${!isFirstInGroup ? 'rounded-tr-[5px]' : ''} ${!isLastInGroup ? 'rounded-br-[5px]' : ''} ${isFirstInGroup && isLastInGroup ? 'rounded-tr-[5px]' : ''}`
@@ -91,15 +114,14 @@ const MessageBubble = React.memo(function MessageBubble({
       className={`flex flex-wrap ${isMe ? 'justify-end' : 'justify-start'} group w-full ${isLastInGroup ? 'mb-4' : 'mb-[2px]'}`}
     >
       {!isMe && selectedChat?.isGroupChat && isLastInGroup && (
-        <div className="w-8 h-8 mr-2 self-end shadow-sm relative shrink-0">
-          <Image
-            src={m.sender.avatar || "https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg"}
-            alt="Sender"
-            fill
+        <div className="relative mr-2 h-8 w-8 shrink-0 self-end shadow-sm">
+          <UserAvatar
+            src={m.sender.avatar}
+            name={m.sender.name || m.sender.email}
+            variant="sm"
+            className="h-8 w-8"
             sizes="32px"
-            className="rounded-full object-cover"
-            unoptimized={m.sender.avatar ? m.sender.avatar.includes('localhost') : false}
-            priority={isLastInGroup} // Preload the most visible sender images for LCP
+            priority={isLastInGroup}
           />
         </div>
       )}
@@ -109,17 +131,14 @@ const MessageBubble = React.memo(function MessageBubble({
 
       <div className={`flex items-center gap-2 max-w-[85%] md:max-w-[70%] lg:max-w-[65%] ${isMe ? 'flex-row-reverse' : 'flex-row'}`}>
 
-        {/* Message Bubble */}
-        <div className={`relative px-4 py-[10px] shadow-sm transition-all duration-200 ${borderRadiusClasses} ${isMe
-          ? 'bg-gradient-to-br from-primary to-primary-hover text-white shadow-lg shadow-primary/15'
-          : 'bg-surface/90 text-foreground border border-border/50 shadow-sm'
-          }`}>
+        {/* Message Bubble — liquid glass shells */}
+        <ChatBubble isSent={isMe} radiusClassName={borderRadiusClasses}>
           {m.mediaUrl && (
             <div className={`mb-2 rounded-xl overflow-hidden ${isMe ? 'bg-black/10' : 'bg-black/5'}`}>
               {m.mediaType === 'image' ? (
                 <div className="relative w-full min-h-[200px] max-h-80 bg-muted/20 flex items-center justify-center overflow-hidden rounded-lg" style={{ aspectRatio: '4/3' }}>
                   <Image
-                    src={`http://localhost:5000${m.mediaUrl}`}
+                    src={resolveMediaUrl(m.mediaUrl)}
                     alt="Media"
                     fill
                     sizes="(max-width: 768px) 100vw, 400px"
@@ -129,11 +148,11 @@ const MessageBubble = React.memo(function MessageBubble({
                   />
                 </div>
               ) : m.mediaType === 'video' ? (
-                <video src={`http://localhost:5000${m.mediaUrl}`} controls className="max-h-64 sm:max-h-80 w-auto object-contain rounded-lg" preload="metadata" />
+                <video src={resolveMediaUrl(m.mediaUrl)} controls className="max-h-64 sm:max-h-80 w-full max-w-[420px] object-contain rounded-lg" preload="metadata" />
               ) : m.mediaType === 'audio' ? (
-                <audio src={`http://localhost:5000${m.mediaUrl}`} controls className="max-w-48 sm:max-w-xs mt-1" />
+                <audio src={resolveMediaUrl(m.mediaUrl)} controls className="max-w-48 sm:max-w-xs mt-1" />
               ) : (
-                <a href={`http://localhost:5000${m.mediaUrl}`} target="_blank" className="underline overflow-hidden truncate block text-sm">Download Attachment</a>
+                <a href={resolveMediaUrl(m.mediaUrl)} target="_blank" className="underline overflow-hidden truncate block text-sm">Download Attachment</a>
               )}
             </div>
           )}
@@ -153,7 +172,7 @@ const MessageBubble = React.memo(function MessageBubble({
               </span>
             )}
           </div>
-        </div>
+        </ChatBubble>
 
         {/* Hover Actions Menu and Reactions Render */}
         {m.content !== '🚫 This message was deleted' && (
@@ -167,7 +186,7 @@ const MessageBubble = React.memo(function MessageBubble({
               >
                 <div className="w-4 h-4 rounded-full bg-border/80 flex items-center justify-center text-[10px]">😀</div>
               </button>
-              <AnimatePresence>
+              <AnimatePresence initial={false}>
                 {pickerMsgId === m._id && (
                   <>
                     <div className="fixed inset-0 z-40" onClick={() => setPickerMsgId(null)}></div>
@@ -264,14 +283,18 @@ export default function ChatWindow() {
   const [media, setMedia] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isSending, setIsSending] = useState(false);
   // Audio visualization
-  const [audioData, setAudioData] = useState<number[]>(new Array(20).fill(0));
+  const [audioData, setAudioData] = useState<number[]>(new Array(24).fill(0));
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const rafIdRef = useRef<number | null>(null);
   const [isRecording, setIsRecording] = useState(false);
   const [effectsReady, setEffectsReady] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const richEffects = useRichEffectsEnabled();
+  const messageMotionEnabled = effectsReady && !richEffects.reduceMotion;
+  const isMobile = !useBreakpoint('md');
+  const listDrawer = useMobileChatListDrawer();
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const [recordingTime, setRecordingTime] = useState(0);
@@ -285,6 +308,11 @@ export default function ChatWindow() {
   const isTypingRef = useRef(false);
   const [isPending, startTransition] = useTransition();
   const frameCountRef = useRef(0);
+  /** Sync flag for the visualizer RAF — state `isRecording` in the RAF closure is stale until re-render. */
+  const recordingActiveRef = useRef(false);
+  /** Bumps when mic setup is cancelled so async branches exit cleanly. */
+  const micSessionRef = useRef(0);
+  const micAbortRef = useRef<AbortController | null>(null);
 
   const { selectedChat, setSelectedChat, setChats } = useChatStore() as {
     selectedChat: Chat | null;
@@ -297,6 +325,11 @@ export default function ChatWindow() {
   const { initiateCall } = useWebRTCStore() as {
     initiateCall: (user: ChatUser, type: 'audio' | 'video') => void;
   };
+
+  const edgeSwipe = useChatEdgeSwipe({
+    enabled: isMobile && Boolean(selectedChat) && Boolean(listDrawer),
+    onRevealList: listDrawer ? () => listDrawer.open() : undefined,
+  });
 
   const getSenderInfo = (loggedUser: ChatUser | null, users: ChatUser[]) => {
     return users[0]?._id === loggedUser?._id ? users[1] : users[0];
@@ -311,21 +344,6 @@ export default function ChatWindow() {
   useEffect(() => {
     if (user?._id) initHiddenContacts(user._id);
   }, [user?._id, initHiddenContacts]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mq = window.matchMedia('(max-width: 640px)');
-    const update = () => setIsMobile(mq.matches);
-    update();
-
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', update);
-      return () => mq.removeEventListener?.('change', update);
-    }
-    // Safari < 14
-    mq.addListener(update);
-    return () => mq.removeListener(update);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -382,25 +400,43 @@ export default function ChatWindow() {
 
       // Update global chats list to move chat to top and adjust unread count/latest message
       setChats((prevChats) => {
-        const updatedChats = prevChats.map((c) => {
-          if (c._id === newMessageReceived.chat._id) {
-            const safeUnreadCounts = c.unreadCounts || {};
-            const currentCount = safeUnreadCounts[user?._id as string] || 0;
-            return {
-              ...c,
+        const existing = prevChats.find((c) => c._id === newMessageReceived.chat._id);
+
+        // If this is a brand‑new chat (receiver never opened it), add it to the list
+        if (!existing) {
+          const safeUnreadCounts = (newMessageReceived.chat.unreadCounts as Record<string, number> | undefined) || {};
+          return [
+            {
+              ...newMessageReceived.chat,
               latestMessage: newMessageReceived,
               unreadCounts: {
                 ...safeUnreadCounts,
-                [user?._id as string]: isUnread ? currentCount + 1 : currentCount
-              }
-            };
-          }
-          return c;
+                [user?._id as string]: isUnread ? 1 : 0,
+              },
+            },
+            ...prevChats,
+          ];
+        }
+
+        // Otherwise update the existing chat and move it to the top
+        const updatedChats = prevChats.map((c) => {
+          if (c._id !== newMessageReceived.chat._id) return c;
+
+          const safeUnreadCounts = c.unreadCounts || {};
+          const currentCount = safeUnreadCounts[user?._id as string] || 0;
+          return {
+            ...c,
+            latestMessage: newMessageReceived,
+            unreadCounts: {
+              ...safeUnreadCounts,
+              [user?._id as string]: isUnread ? currentCount + 1 : currentCount,
+            },
+          };
         });
 
-        const targetChat = updatedChats.find(c => c._id === newMessageReceived.chat._id);
+        const targetChat = updatedChats.find((c) => c._id === newMessageReceived.chat._id);
         if (targetChat) {
-          return [targetChat, ...updatedChats.filter(c => c._id !== targetChat._id)];
+          return [targetChat, ...updatedChats.filter((c) => c._id !== targetChat._id)];
         }
         return updatedChats;
       });
@@ -659,45 +695,86 @@ export default function ChatWindow() {
 
   const sendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
-    if ((!message.trim() && !media) || !selectedChat) return;
+    if (isSending) return;
+    const trimmed = message.trim();
+    if ((!trimmed && !media) || !selectedChat) return;
+
+    if (!user) return;
+
+    setIsSending(true);
+
+    // Optimistic render for text-only messages to improve perceived speed on mobile
+    const tempId = `temp-${Date.now()}`;
+    let optimisticMessage: ChatMessage | null = null;
+    if (!media && trimmed) {
+      optimisticMessage = {
+        _id: tempId,
+        sender: user as ChatUser,
+        content: trimmed,
+        chat: { _id: selectedChat._id },
+        createdAt: new Date().toISOString(),
+        status: 'sent',
+        reactions: [],
+        optimistic: true,
+      };
+      setMessages((prev) => [...prev, optimisticMessage as ChatMessage]);
+    }
+
+    const mediaToSend = media;
+    const contentToSend = trimmed;
+
+    // Clear the UI instantly so the composer feels responsive on phones
+    setMessage('');
+    if (mediaPreview || mediaToSend) {
+      setMedia(null);
+      setMediaPreview(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
 
     try {
       let data: ChatMessage;
 
-      if (media) {
+      if (mediaToSend) {
         const formData = new FormData();
-        formData.append('media', media);
+        formData.append('media', mediaToSend);
         formData.append('chatId', selectedChat._id);
-        formData.append('content', message);
-        if (media.type.startsWith('image/')) formData.append('mediaType', 'image');
-        if (media.type.startsWith('video/')) formData.append('mediaType', 'video');
-        if (media.type.startsWith('audio/')) formData.append('mediaType', 'audio');
+        formData.append('content', contentToSend);
+        if (mediaToSend.type.startsWith('image/')) formData.append('mediaType', 'image');
+        if (mediaToSend.type.startsWith('video/')) formData.append('mediaType', 'video');
+        if (mediaToSend.type.startsWith('audio/')) formData.append('mediaType', 'audio');
 
-        const response = await api.post('/message', formData, {
-          headers: {
-            'Content-Type': 'multipart/form-data'
-          }
-        });
+        const response = await api.post('/message', formData);
         data = response.data;
       } else {
         const response = await api.post('/message', {
-          content: message,
+          content: contentToSend,
           chatId: selectedChat._id,
         });
         data = response.data;
       }
 
-      setMessage('');
-      setMedia(null);
-      setMediaPreview(null);
-
       socket?.emit('stop typing', selectedChat._id);
       socket?.emit('new message', data);
-      setMessages((prev) => [...prev, data as ChatMessage]);
+      setMessages((prev) => {
+        if (optimisticMessage) {
+          return prev.map((m) => (m._id === tempId ? data as ChatMessage : m));
+        }
+        return [...prev, data as ChatMessage];
+      });
     } catch (error: unknown) {
       const apiError = error as { response?: { data?: { message?: string } }; message?: string };
       console.error('Failed to send message:', apiError.response?.data || apiError.message || apiError);
+      if (optimisticMessage) {
+        setMessages((prev) => prev.filter((m) => m._id !== tempId));
+      }
+      if (contentToSend) setMessage(contentToSend);
+      if (mediaToSend) {
+        setMedia(mediaToSend);
+        setMediaPreview(URL.createObjectURL(mediaToSend));
+      }
       alert(`Failed to send message: ${apiError.response?.data?.message || 'File might be too large or invalid'}`);
+    } finally {
+      setIsSending(false);
     }
   };
 
@@ -712,19 +789,20 @@ export default function ChatWindow() {
       const isFirstInGroup = !prevMessage || prevMessage.sender._id !== m.sender._id;
 
       return (
-        <div key={m._id} className="px-4 md:px-6 cv-auto">
+        <div key={m._id} className="px-3 sm:px-4 md:px-6 cv-auto">
           <MessageBubble
             m={m}
             isMe={isMe}
             isLastInGroup={isLastInGroup}
             isFirstInGroup={isFirstInGroup}
-            effectsReady={effectsReady}
+            effectsReady={messageMotionEnabled}
             isMobile={isMobile}
             selectedChat={selectedChat}
             pickerMsgId={pickerMsgId}
             setPickerMsgId={setPickerMsgId}
             handleReact={handleReact}
             handleDeleteMessage={handleDeleteMessage}
+            resolveMediaUrl={resolvePublicFileUrl}
           />
         </div>
       );
@@ -752,81 +830,171 @@ export default function ChatWindow() {
   };
 
   const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
+    if (mediaRecorderRef.current?.state === 'recording' || recordingActiveRef.current) return;
+    if (micAbortRef.current) return;
 
-      // Set up Audio Analyser
-      const AudioContextCtor =
-        window.AudioContext ||
-        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-      if (!AudioContextCtor) {
-        throw new Error('AudioContext is not supported');
-      }
-      const audioContext = new AudioContextCtor();
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 64; // Small size for just a few bars
-      const source = audioContext.createMediaStreamSource(stream);
-      source.connect(analyser);
-      audioContextRef.current = audioContext;
-      analyserRef.current = analyser;
+    const session = ++micSessionRef.current;
+    const ac = new AbortController();
+    micAbortRef.current = ac;
 
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateData = () => {
-        if (!isRecording) return;
-        frameCountRef.current++;
-
-        // Throttle React state updates to every 3 frames (~20fps) to improve INP/Main-thread performance
-        if (frameCountRef.current % 3 === 0) {
-          analyser.getByteFrequencyData(dataArray);
-          const step = Math.floor(dataArray.length / 20);
-          const sampled = Array.from({ length: 20 }, (_, i) => dataArray[i * step] || 0);
-          setAudioData(sampled);
-        }
-        rafIdRef.current = requestAnimationFrame(updateData);
-      };
-      updateData();
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
-        }
-      };
-
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const audioFile = new File([audioBlob], `VoiceNote_${Date.now()}.webm`, { type: 'audio/webm' });
-        setMedia(audioFile);
-        setMediaPreview(URL.createObjectURL(audioBlob));
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
+    flushSync(() => {
       setIsRecording(true);
       setRecordingTime(0);
-      timerRef.current = setInterval(() => {
-        setRecordingTime(prev => prev + 1);
-      }, 1000);
-    } catch (err) {
+      setAudioData(new Array(24).fill(0));
+    });
+
+    let stream: MediaStream | null = null;
+    try {
+      const micConstraints = { audio: true, signal: ac.signal } as MediaStreamConstraints & {
+        signal?: AbortSignal;
+      };
+      stream = await navigator.mediaDevices.getUserMedia(micConstraints);
+    } catch (err: unknown) {
+      micAbortRef.current = null;
+      if (session !== micSessionRef.current) return;
+      const e = err as { name?: string };
+      flushSync(() => setIsRecording(false));
+      if (e?.name === 'AbortError') return;
       console.error('Error accessing microphone:', err);
       alert('Could not access microphone.');
+      return;
     }
+
+    if (session !== micSessionRef.current) {
+      stream.getTracks().forEach((t) => t.stop());
+      micAbortRef.current = null;
+      flushSync(() => setIsRecording(false));
+      return;
+    }
+
+    micAbortRef.current = null;
+    audioChunksRef.current = [];
+
+    const chosenMime = pickAudioMimeTypeForRecorder();
+    const mediaRecorder = new MediaRecorder(stream, chosenMime ? { mimeType: chosenMime } : undefined);
+    mediaRecorderRef.current = mediaRecorder;
+
+    mediaRecorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        audioChunksRef.current.push(event.data);
+      }
+    };
+
+    mediaRecorder.onstop = () => {
+      mediaRecorderRef.current = null;
+      const blobType = chosenMime || mediaRecorder.mimeType || 'audio/webm';
+      const audioBlob = new Blob(audioChunksRef.current, { type: blobType });
+      stream.getTracks().forEach((track) => track.stop());
+
+      if (audioBlob.size < 256) {
+        alert('Recording was too short or empty. Try holding the mic a little longer.');
+        return;
+      }
+
+      const ext =
+        blobType.includes('mp4') || blobType.includes('m4a')
+          ? 'm4a'
+          : blobType.includes('ogg')
+            ? 'ogg'
+            : 'webm';
+      const audioFile = new File([audioBlob], `VoiceNote_${Date.now()}.${ext}`, { type: blobType });
+      setMedia(audioFile);
+      setMediaPreview(URL.createObjectURL(audioBlob));
+    };
+
+    mediaRecorder.start(120);
+    timerRef.current = setInterval(() => {
+      setRecordingTime((prev) => prev + 1);
+    }, 1000);
+
+    queueMicrotask(() => {
+      void (async () => {
+        if (session !== micSessionRef.current) return;
+
+        const AudioContextCtor =
+          window.AudioContext ||
+          (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+        if (!AudioContextCtor) return;
+
+        const audioContext = new AudioContextCtor();
+        audioContextRef.current = audioContext;
+        const analyser = audioContext.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.smoothingTimeConstant = 0.72;
+        const source = audioContext.createMediaStreamSource(stream);
+        source.connect(analyser);
+        analyserRef.current = analyser;
+
+        if (audioContext.state === 'suspended') {
+          try {
+            await audioContext.resume();
+          } catch {
+            /* ignore */
+          }
+        }
+        if (session !== micSessionRef.current) {
+          void audioContext.close();
+          audioContextRef.current = null;
+          analyserRef.current = null;
+          return;
+        }
+
+        recordingActiveRef.current = true;
+        frameCountRef.current = 0;
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+
+        const updateData = () => {
+          if (session !== micSessionRef.current || !recordingActiveRef.current || !analyserRef.current) return;
+          frameCountRef.current += 1;
+          if (frameCountRef.current % 3 === 0) {
+            analyserRef.current.getByteFrequencyData(dataArray);
+            const bars = 24;
+            const step = Math.max(1, Math.floor(dataArray.length / bars));
+            const sampled = Array.from({ length: bars }, (_, i) => dataArray[i * step] ?? 0);
+            startTransition(() => setAudioData(sampled));
+          }
+          rafIdRef.current = requestAnimationFrame(updateData);
+        };
+        updateData();
+      })();
+    });
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop();
-      setIsRecording(false);
-      if (timerRef.current) {
-        clearInterval(timerRef.current);
-        timerRef.current = null;
-      }
+    micSessionRef.current += 1;
+    try {
+      micAbortRef.current?.abort();
+    } catch {
+      /* ignore */
+    }
+    micAbortRef.current = null;
 
-      if (rafIdRef.current) cancelAnimationFrame(rafIdRef.current);
-      if (audioContextRef.current) audioContextRef.current.close();
-      setAudioData(new Array(20).fill(0));
+    recordingActiveRef.current = false;
+    flushSync(() => setIsRecording(false));
+
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+
+    if (rafIdRef.current != null) {
+      cancelAnimationFrame(rafIdRef.current);
+      rafIdRef.current = null;
+    }
+    if (audioContextRef.current) {
+      void audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+    analyserRef.current = null;
+    startTransition(() => setAudioData(new Array(24).fill(0)));
+
+    const mr = mediaRecorderRef.current;
+    if (mr && mr.state === 'recording') {
+      try {
+        mr.stop();
+      } catch (e) {
+        console.error('stopRecording:', e);
+      }
     }
   };
 
@@ -885,54 +1053,95 @@ export default function ChatWindow() {
 
   if (!selectedChat) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center bg-background border-l border-border/60 text-muted transition-colors duration-300">
-        <div className="w-20 h-20 glass-panel rounded-full flex items-center justify-center mb-6">
-          <MessageSquare className="w-10 h-10 text-primary" />
-        </div>
-        <h3 className="text-2xl font-semibold text-foreground mb-2">Select a Chat</h3>
-        <p className="text-sm max-w-sm text-center">Choose a conversation from the sidebar to start messaging or search for new contacts.</p>
+      <div className="flex-1 flex flex-col items-center justify-center px-4 py-8 text-muted transition-all duration-300">
+        <GlassCard variant="liquid" lift className="max-w-md px-8 py-10 text-center">
+          <div className="mx-auto w-16 h-16 sm:w-20 sm:h-20 glass-panel rounded-full flex items-center justify-center mb-5">
+            <MessageSquare className="w-8 h-8 sm:w-10 sm:h-10 text-primary" />
+          </div>
+          <h3 className="text-xl sm:text-2xl font-semibold text-foreground mb-2">Select a Chat</h3>
+          <p className="text-sm text-muted max-w-xs mx-auto leading-relaxed">
+            Choose a conversation from the sidebar to start messaging or search for new contacts.
+          </p>
+        </GlassCard>
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-background relative overflow-hidden transition-colors duration-300">
+    <div
+      className="relative flex h-full min-h-0 flex-1 flex-col overflow-hidden transition-all duration-300"
+      onTouchStart={edgeSwipe.onTouchStart}
+      onTouchEnd={edgeSwipe.onTouchEnd}
+      onTouchCancel={edgeSwipe.onTouchCancel}
+    >
 
-      {/* Subtle Background Pattern */}
-      <div className="absolute inset-0 opacity-[0.03] dark:opacity-[0.05] pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)', backgroundSize: '24px 24px' }}></div>
+      {/* Light web texture (keeps performance vs huge blur) */}
+      <div className="pointer-events-none absolute inset-0 opacity-[0.04] dark:opacity-[0.06]" style={{ backgroundImage: 'radial-gradient(circle at 2px 2px, currentColor 1px, transparent 0)', backgroundSize: '22px 22px' }} />
 
       {/* Chat Header */}
-      <div className={`h-16 border-b border-border/60 flex flex-shrink-0 items-center justify-between px-6 bg-surface/90 ${effectsReady && !isMobile ? 'backdrop-blur-xl' : ''} z-20 w-full transition-colors duration-300 shadow-sm`}>
-        <div className="flex items-center gap-4">
+      <div className={`glass-liquid z-20 flex h-14 shrink-0 items-center justify-between border-b border-white/10 px-3 transition-all duration-300 sm:h-16 sm:px-6 dark:border-white/5 ${effectsReady && !isMobile ? 'backdrop-blur-xl' : ''}`}>
+        <div className="flex items-center gap-2 sm:gap-4 min-w-0">
           <button
-            className="md:hidden text-muted hover:text-foreground p-2 -ml-2 rounded-full hover:bg-surface-hover transition-colors"
+            className="md:hidden text-muted hover:text-foreground min-h-11 min-w-11 inline-flex items-center justify-center -ml-1 rounded-2xl hover:bg-surface-hover/90 transition-colors btn-liquid"
             onClick={() => setSelectedChat(null)}
             aria-label="Back to chats"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div className="relative group cursor-pointer w-11 h-11 shrink-0 rounded-full overflow-hidden shadow-sm ring-2 ring-transparent group-hover:ring-primary/50 transition-all duration-300">
-            <motion.div layoutId={`avatar-${sender?._id}`} className="w-full h-full relative">
-              <Image
-                src={sender?.avatar || 'https://icon-library.com/images/anonymous-avatar-icon/anonymous-avatar-icon-25.jpg'}
-                alt="User"
-                width={44}
-                height={44}
-                className="object-cover"
-                unoptimized={sender?.avatar ? sender.avatar.includes('localhost') : false}
-                priority // Explicitly preload the header avatar for instant LCP scoring
-              />
-            </motion.div>
-
+          {listDrawer && isMobile ? (
+            <button
+              type="button"
+              className="md:hidden text-muted hover:text-foreground min-h-11 min-w-11 inline-flex items-center justify-center rounded-2xl hover:bg-surface-hover/90 transition-colors btn-liquid -ml-1"
+              onClick={() => listDrawer.open()}
+              aria-label="Open chat list drawer"
+            >
+              <PanelLeft className="w-5 h-5" />
+            </button>
+          ) : null}
+          <div className="group relative h-11 w-11 shrink-0 cursor-pointer shadow-sm ring-2 ring-transparent transition-all duration-300 group-hover:ring-primary/50">
+            {isMobile ? (
+              <div className="relative h-full w-full">
+                <UserAvatar
+                  src={selectedChat.isGroupChat ? undefined : sender?.avatar}
+                  name={
+                    selectedChat.isGroupChat
+                      ? selectedChat.chatName || 'Group'
+                      : sender?.name || sender?.email || 'Chat'
+                  }
+                  variant="md"
+                  className="h-11 w-11 ring-0"
+                  sizes="44px"
+                  priority
+                />
+              </div>
+            ) : (
+              <motion.div
+                layoutId={`avatar-header-${selectedChat.isGroupChat ? selectedChat._id : sender?._id || selectedChat._id}`}
+                className="relative h-full w-full"
+              >
+                <UserAvatar
+                  src={selectedChat.isGroupChat ? undefined : sender?.avatar}
+                  name={
+                    selectedChat.isGroupChat
+                      ? selectedChat.chatName || 'Group'
+                      : sender?.name || sender?.email || 'Chat'
+                  }
+                  variant="md"
+                  className="h-11 w-11 ring-0"
+                  sizes="44px"
+                  priority
+                />
+              </motion.div>
+            )}
           </div>
           <div
-            className="flex flex-col cursor-pointer hover:bg-surface-hover/50 rounded-xl px-2 py-1 transition-colors"
+            className="flex flex-col cursor-pointer hover:bg-surface-hover/50 rounded-xl px-2 py-1 transition-colors min-w-0"
             onClick={() => setIsContactInfoOpen(true)}
           >
-            <h3 className="font-bold text-[17px] text-foreground tracking-tight flex items-center gap-2">
+            <h3 className="font-bold text-[17px] text-foreground tracking-tight flex items-center gap-2 truncate">
               {selectedChat.isGroupChat ? selectedChat.chatName : sender?.name}
             </h3>
-            <p className="text-[13px] font-medium text-muted">
+            <p className="text-[13px] font-medium text-muted truncate">
               {senderIsOnline ? (
                 <span className="text-primary flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse"></span>
@@ -942,9 +1151,21 @@ export default function ChatWindow() {
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1 text-muted">
-          <button onClick={() => startCall('video')} aria-label="Start video call" className="p-2.5 rounded-2xl hover:bg-surface-hover hover:text-primary transition-all shadow-sm"><Video className="w-5 h-5" /></button>
-          <button onClick={() => startCall('audio')} aria-label="Start audio call" className="p-2.5 rounded-2xl hover:bg-surface-hover hover:text-primary transition-all shadow-sm"><Phone className="w-5 h-5" /></button>
+        <div className="flex items-center gap-1 text-muted shrink-0">
+          <Glass3DButton
+            onClick={() => startCall('video')}
+            aria-label="Start video call"
+            className="rounded-2xl p-2.5 text-muted hover:text-primary"
+          >
+            <Video className="h-5 w-5" />
+          </Glass3DButton>
+          <Glass3DButton
+            onClick={() => startCall('audio')}
+            aria-label="Start audio call"
+            className="rounded-2xl p-2.5 text-muted hover:text-primary"
+          >
+            <Phone className="h-5 w-5" />
+          </Glass3DButton>
           <div className="w-[1px] h-6 bg-border/50 mx-1"></div>
 
           <div className="relative">
@@ -955,7 +1176,7 @@ export default function ChatWindow() {
             >
               <MoreVertical className="w-5 h-5" />
             </button>
-            <AnimatePresence>
+            <AnimatePresence initial={false}>
               {isMenuOpen && (
                 <>
                   <div className="fixed inset-0 z-40" onClick={() => setIsMenuOpen(false)} />
@@ -992,7 +1213,7 @@ export default function ChatWindow() {
       </div>
 
       {/* Messages Area */}
-      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto w-full relative z-10 flex flex-col pt-4 contain-paint">
+      <div ref={messagesContainerRef} className="flex-1 overflow-y-auto w-full relative z-10 flex flex-col pt-4 contain-paint min-h-0">
         {isPending ? (
           <div className="space-y-4 px-4">
             {[1, 2, 3, 4, 5].map(i => (
@@ -1015,7 +1236,7 @@ export default function ChatWindow() {
             <motion.div
               initial={{ opacity: 0, scale: 0.8 }}
               animate={{ opacity: 1, scale: 1 }}
-              className="bg-surface border border-border/50 text-muted rounded-[20px] rounded-tl-[4px] px-4 py-3 shadow-sm flex gap-1.5 items-center h-[42px]"
+              className="glass-liquid flex h-[42px] items-center gap-1.5 rounded-2xl rounded-tl-md border border-white/15 px-4 py-3 text-muted shadow-md dark:border-white/10"
             >
               <motion.span animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0 }} className="w-2 h-2 rounded-full bg-muted/60"></motion.span>
               <motion.span animate={{ y: [0, -4, 0] }} transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }} className="w-2 h-2 rounded-full bg-muted/60"></motion.span>
@@ -1082,12 +1303,13 @@ export default function ChatWindow() {
           isRecording={isRecording}
           startRecording={startRecording}
           stopRecording={stopRecording}
-          recordingTime={recordingTime}
-          audioData={audioData}
-          fileInputRef={fileInputRef}
-          typingHandler={typingHandler}
-          effectsReady={effectsReady}
-        />
+        recordingTime={recordingTime}
+        audioData={audioData}
+        fileInputRef={fileInputRef}
+        typingHandler={typingHandler}
+        effectsReady={messageMotionEnabled}
+        isSending={isSending}
+      />
       </div>
 
       {isContactInfoOpen && (
