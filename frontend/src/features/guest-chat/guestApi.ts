@@ -69,3 +69,21 @@ export function sendMessage(token: string, text: string): Promise<GuestMessage> 
 export function markRead(token: string): void {
   void request(token, '/read', { method: 'POST' }).catch(() => {});
 }
+
+/**
+ * ICE servers for a call, from the server rather than this build.
+ *
+ * Both ends of the call have to be given the same relay — a browser and a
+ * phone configured with different TURN servers gather candidates that can
+ * never pair up, and that failure looks like a connected call with no
+ * audio and no error. Behind the link token like every other guest route,
+ * because TURN credentials are not something to serve to anyone who asks.
+ */
+export function fetchIceServers(
+  token: string,
+): Promise<{ urls: string[]; username?: string; credential?: string }[]> {
+  return request<{ iceServers: { urls: string[]; username?: string; credential?: string }[] }>(
+    token,
+    '/ice',
+  ).then((d) => d.iceServers);
+}

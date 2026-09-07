@@ -2,16 +2,18 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { Phone, Send, ShieldCheck, AlertCircle } from 'lucide-react';
+import { Phone, PhoneOff, Send, ShieldCheck, AlertCircle, Mic, MicOff } from 'lucide-react';
 import { ChatBubble } from '@/components/ui/ChatBubble';
 import {
   GuestLinkInvalidError,
+  fetchIceServers,
   fetchMessages,
   fetchSession,
   markRead,
   sendMessage,
   socketUrl,
 } from './guestApi';
+import { useGuestCall } from './useGuestCall';
 import { realtimeToGuestMessage, type GuestMessage, type GuestSession, type RealtimeMessage } from './types';
 
 type Phase = 'loading' | 'ready' | 'invalid' | 'error';
@@ -28,6 +30,19 @@ function formatTime(iso: string): string {
   return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+/** Ticks once a second only while a call is up, rather than re-rendering the whole window. */
+function CallDuration({ since }: { since: number }) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  const total = Math.max(0, Math.floor((now - since) / 1000));
+  const mm = String(Math.floor(total / 60)).padStart(2, '0');
+  const ss = String(total % 60).padStart(2, '0');
+  return <span>{`${mm}:${ss}`}</span>;
+}
+
 export default function GuestChatWindow({ token }: { token: string }) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -36,10 +51,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
-  const [callNotice, setCallNotice] = useState(false);
+  const [socket, setSocket] = useState<Socket | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
-  const socketRef = useRef<Socket | null>(null);
+
+  const loadIce = useCallback(() => fetchIceServers(token), [token]);
+  const call = useGuestCall(socket, loadIce);
 
   // ---- initial load -------------------------------------------------
   useEffect(() => {
@@ -76,29 +93,30 @@ export default function GuestChatWindow({ token }: { token: string }) {
   useEffect(() => {
     if (phase !== 'ready') return;
 
-    const socket = io(socketUrl(), {
+    const s = io(socketUrl(), {
       auth: { guestToken: token },
       transports: ['websocket', 'polling'],
     });
-    socketRef.current = socket;
 
-    socket.on('connect', () => setConnected(true));
-    socket.on('disconnect', () => setConnected(false));
+    s.on('connect', () => setConnected(true));
+    s.on('disconnect', () => setConnected(false));
     // The link was revoked or expired while the page sat open. The server
-    // has already closed the socket; showing the same screen a bad link
-    // gets is more honest than a silent, permanently idle window.
-    socket.on('connect_error', () => setConnected(false));
+    // has already closed the socket; showing it as disconnected is more
+    // honest than a silent, permanently idle window.
+    s.on('connect_error', () => setConnected(false));
 
-    socket.on('message:new', (payload: RealtimeMessage) => {
+    s.on('message:new', (payload: RealtimeMessage) => {
       const incoming = realtimeToGuestMessage(payload);
       setMessages((prev) => mergeMessage(prev, incoming));
       if (incoming.from === 'business') markRead(token);
     });
 
+    setSocket(s);
+
     return () => {
-      socket.off('message:new');
-      socket.disconnect();
-      socketRef.current = null;
+      s.off('message:new');
+      s.disconnect();
+      setSocket(null);
     };
   }, [phase, token]);
 
@@ -162,8 +180,14 @@ export default function GuestChatWindow({ token }: { token: string }) {
     );
   }
 
+  const callActive = call.phase !== 'idle';
+
   return (
     <main className="flex h-[100dvh] flex-col bg-background">
+      {/* The remote audio. Never rendered conditionally: the element has to
+          exist before ontrack fires, or the first seconds land nowhere. */}
+      <audio ref={call.remoteAudioRef} autoPlay playsInline className="hidden" />
+
       {/* Header — the business, and nothing that navigates anywhere else. */}
       <header className="flex shrink-0 items-center gap-3 border-b border-border/60 bg-surface/80 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] backdrop-blur-xl">
         <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold uppercase text-primary">
@@ -178,19 +202,14 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
         <button
           type="button"
-          onClick={() => setCallNotice((v) => !v)}
+          onClick={() => void call.startCall()}
+          disabled={callActive || !connected}
           aria-label="Call"
-          className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground"
+          className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
         >
           <Phone className="h-5 w-5" />
         </button>
       </header>
-
-      {callNotice && (
-        <p className="shrink-0 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-700 dark:text-amber-400">
-          Calling from this window isn’t available yet.
-        </p>
-      )}
 
       {/* Transcript */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
@@ -264,6 +283,74 @@ export default function GuestChatWindow({ token }: { token: string }) {
           <Send className="h-5 w-5" />
         </button>
       </form>
+
+      {/* Call sheet — above everything, because a ringing call must not be
+          something the user has to go looking for. */}
+      {callActive && (
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-background/95 px-8 text-center backdrop-blur-xl">
+          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/15 text-2xl font-semibold uppercase text-primary">
+            {title.slice(0, 2)}
+          </div>
+          <div>
+            <h2 className="text-xl font-semibold">{title}</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {call.phase === 'calling' && 'Ringing…'}
+              {call.phase === 'incoming' && 'Incoming call'}
+              {call.phase === 'connecting' && 'Connecting…'}
+              {call.phase === 'active' && call.connectedAt && <CallDuration since={call.connectedAt} />}
+              {(call.phase === 'ended' || call.phase === 'failed') && call.message}
+            </p>
+          </div>
+
+          {call.phase === 'incoming' ? (
+            <div className="flex items-center gap-8">
+              <button
+                type="button"
+                onClick={call.endCall}
+                aria-label="Decline"
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
+              >
+                <PhoneOff className="h-6 w-6" />
+              </button>
+              <button
+                type="button"
+                onClick={() => void call.acceptCall()}
+                aria-label="Accept"
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-green-500 text-white"
+              >
+                <Phone className="h-6 w-6" />
+              </button>
+            </div>
+          ) : call.phase === 'ended' || call.phase === 'failed' ? (
+            <button
+              type="button"
+              onClick={call.dismiss}
+              className="rounded-full bg-foreground/10 px-6 py-3 text-sm font-medium"
+            >
+              Close
+            </button>
+          ) : (
+            <div className="flex items-center gap-8">
+              <button
+                type="button"
+                onClick={call.toggleMute}
+                aria-label={call.muted ? 'Unmute' : 'Mute'}
+                className="flex h-14 w-14 items-center justify-center rounded-full bg-foreground/10"
+              >
+                {call.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
+              </button>
+              <button
+                type="button"
+                onClick={call.endCall}
+                aria-label="End call"
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
+              >
+                <PhoneOff className="h-6 w-6" />
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </main>
   );
 }
