@@ -52,8 +52,16 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
+  const [agentOnline, setAgentOnline] = useState(false);
+  const [agentTyping, setAgentTyping] = useState(false);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  /** Clears the indicator if the other side stops typing without saying so — a
+   *  dropped socket or a closed app leaves no stop event behind. */
+  const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Our own "still typing" throttle, so a keystroke does not become a packet. */
+  const typingSentRef = useRef(false);
+  const typingIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
   const call = useGuestCall(socket, loadIce);
@@ -109,14 +117,32 @@ export default function GuestChatWindow({ token }: { token: string }) {
       const incoming = realtimeToGuestMessage(payload);
       setMessages((prev) => mergeMessage(prev, incoming));
       if (incoming.from === 'business') markRead(token);
+      // A message means they finished typing, whether or not a stop event
+      // arrives — and it always looks wrong to still say "typing" under a
+      // message that has already landed.
+      setAgentTyping(false);
     });
+
+    s.on('agent:presence', (payload: { online: boolean }) => setAgentOnline(Boolean(payload?.online)));
+
+    s.on('typing:start', () => {
+      setAgentTyping(true);
+      if (typingClearRef.current) clearTimeout(typingClearRef.current);
+      typingClearRef.current = setTimeout(() => setAgentTyping(false), 6000);
+    });
+    s.on('typing:stop', () => setAgentTyping(false));
 
     setSocket(s);
 
     return () => {
       s.off('message:new');
+      s.off('agent:presence');
+      s.off('typing:start');
+      s.off('typing:stop');
       s.disconnect();
       setSocket(null);
+      setAgentOnline(false);
+      setAgentTyping(false);
     };
   }, [phase, token]);
 
@@ -125,12 +151,41 @@ export default function GuestChatWindow({ token }: { token: string }) {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length]);
 
+  const stopTyping = useCallback(() => {
+    if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
+    if (!typingSentRef.current) return;
+    typingSentRef.current = false;
+    socket?.emit('typing:stop');
+  }, [socket]);
+
+  /**
+   * One start event per burst of typing, then a stop once they pause.
+   * Emitting per keystroke would send a packet per character for an
+   * indicator that cannot show more than "typing".
+   */
+  const noteTyping = useCallback(() => {
+    if (!socket) return;
+    if (!typingSentRef.current) {
+      typingSentRef.current = true;
+      socket.emit('typing:start');
+    }
+    if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
+    typingIdleRef.current = setTimeout(stopTyping, 2500);
+  }, [socket, stopTyping]);
+
+  // Nothing should be left mid-"typing" when the page goes away.
+  useEffect(() => () => {
+    if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
+    if (typingClearRef.current) clearTimeout(typingClearRef.current);
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = draft.trim();
     if (!text || sending) return;
 
     setSending(true);
     setDraft('');
+    stopTyping();
     try {
       const saved = await sendMessage(token, text);
       setMessages((prev) => mergeMessage(prev, saved));
@@ -145,7 +200,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
     } finally {
       setSending(false);
     }
-  }, [draft, sending, token]);
+  }, [draft, sending, token, stopTyping]);
 
   const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
 
@@ -195,9 +250,23 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>
-          <p className="flex items-center gap-1 text-[11px] leading-tight text-muted">
-            <ShieldCheck className="h-3 w-3" aria-hidden />
-            {connected ? 'Secure chat · connected' : 'Reconnecting…'}
+          <p className="flex items-center gap-1 text-[11px] leading-tight text-muted" aria-live="polite">
+            {!connected ? (
+              <>
+                <ShieldCheck className="h-3 w-3" aria-hidden />
+                Reconnecting…
+              </>
+            ) : agentTyping ? (
+              <span className="font-medium text-primary">typing…</span>
+            ) : (
+              <>
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${agentOnline ? 'bg-green-500' : 'bg-zinc-400'}`}
+                  aria-hidden
+                />
+                {agentOnline ? 'Online' : 'Offline'}
+              </>
+            )}
           </p>
         </div>
         <button
@@ -262,7 +331,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
       >
         <textarea
           value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            if (e.target.value.trim()) noteTyping();
+            else stopTyping();
+          }}
+          onBlur={stopTyping}
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
