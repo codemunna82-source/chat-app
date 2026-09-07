@@ -152,7 +152,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
   if (phase === 'loading') {
     return (
       <main className="flex h-[100dvh] items-center justify-center bg-background px-6 text-center">
-        <p className="text-sm text-muted-foreground">Opening your chat…</p>
+        <p className="text-sm text-muted">Opening your chat…</p>
       </main>
     );
   }
@@ -162,7 +162,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       <main className="flex h-[100dvh] flex-col items-center justify-center gap-3 bg-background px-8 text-center">
         <AlertCircle className="h-10 w-10 text-amber-500" aria-hidden />
         <h1 className="text-lg font-semibold">This chat link has expired</h1>
-        <p className="max-w-sm text-sm text-muted-foreground">
+        <p className="max-w-sm text-sm text-muted">
           Go back to WhatsApp and tap the most recent “Open private chat” link, or send the business a
           message to get a new one.
         </p>
@@ -175,7 +175,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       <main className="flex h-[100dvh] flex-col items-center justify-center gap-3 bg-background px-8 text-center">
         <AlertCircle className="h-10 w-10 text-red-500" aria-hidden />
         <h1 className="text-lg font-semibold">Could not open the chat</h1>
-        <p className="max-w-sm text-sm text-muted-foreground">{errorText}</p>
+        <p className="max-w-sm text-sm text-muted">{errorText}</p>
       </main>
     );
   }
@@ -195,7 +195,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
         <div className="min-w-0 flex-1">
           <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>
-          <p className="flex items-center gap-1 text-[11px] leading-tight text-muted-foreground">
+          <p className="flex items-center gap-1 text-[11px] leading-tight text-muted">
             <ShieldCheck className="h-3 w-3" aria-hidden />
             {connected ? 'Secure chat · connected' : 'Reconnecting…'}
           </p>
@@ -205,7 +205,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
           onClick={() => void call.startCall()}
           disabled={callActive || !connected}
           aria-label="Call"
-          className="flex h-10 w-10 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
+          className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
         >
           <Phone className="h-5 w-5" />
         </button>
@@ -214,7 +214,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       {/* Transcript */}
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
         {messages.length === 0 ? (
-          <p className="mt-10 text-center text-sm text-muted-foreground">
+          <p className="mt-10 text-center text-sm text-muted">
             No messages yet. Say hello to start the conversation.
           </p>
         ) : (
@@ -232,7 +232,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">{m.text}</p>
                       )}
                       <div
-                        className={`mt-1 select-none text-[11px] ${mine ? 'text-white/75' : 'text-muted-foreground'} text-right`}
+                        className={`mt-1 select-none text-[11px] ${mine ? 'text-white/75' : 'text-muted'} text-right`}
                       >
                         {formatTime(m.createdAt)}
                       </div>
@@ -293,7 +293,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
           </div>
           <div>
             <h2 className="text-xl font-semibold">{title}</h2>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-muted">
               {call.phase === 'calling' && 'Ringing…'}
               {call.phase === 'incoming' && 'Incoming call'}
               {call.phase === 'connecting' && 'Connecting…'}
