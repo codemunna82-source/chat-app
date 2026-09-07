@@ -2,8 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { Phone, PhoneOff, Send, ShieldCheck, AlertCircle, Mic, MicOff } from 'lucide-react';
-import { ChatBubble } from '@/components/ui/ChatBubble';
+import { Phone, PhoneOff, Send, ShieldCheck, AlertCircle, Mic, MicOff, MessageCircle } from 'lucide-react';
 import {
   GuestLinkInvalidError,
   fetchIceServers,
@@ -41,6 +40,49 @@ function CallDuration({ since }: { since: number }) {
   const mm = String(Math.floor(total / 60)).padStart(2, '0');
   const ss = String(total % 60).padStart(2, '0');
   return <span>{`${mm}:${ss}`}</span>;
+}
+
+/** "Today" / "Yesterday" / a short date — the chip above the first message of each day. */
+function dayLabel(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+
+  if (sameDay(d, today)) return 'Today';
+  if (sameDay(d, yesterday)) return 'Yesterday';
+  return d.toLocaleDateString([], {
+    day: 'numeric',
+    month: 'short',
+    ...(d.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' }),
+  });
+}
+
+/** Messages from the same side within a few minutes read as one block. */
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+function startsNewGroup(current: GuestMessage, previous?: GuestMessage): boolean {
+  if (!previous) return true;
+  if (previous.from !== current.from) return true;
+  return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() > GROUP_WINDOW_MS;
+}
+
+/** The three-dot bubble, using staggered bounces rather than a keyframe of its own. */
+function TypingBubble() {
+  return (
+    <div className="flex justify-start">
+      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-border/50 bg-surface px-4 py-3 shadow-sm">
+        {[0, 150, 300].map((delay) => (
+          <span
+            key={delay}
+            className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted"
+            style={{ animationDelay: delay + 'ms' }}
+          />
+        ))}
+      </div>
+    </div>
+  );
 }
 
 export default function GuestChatWindow({ token }: { token: string }) {
@@ -204,126 +246,186 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
   const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
 
+  const initials = title.slice(0, 2).toUpperCase();
+
+  /** Every full-screen state shares one frame, so they cannot drift apart. */
+  const Screen = ({ children }: { children: React.ReactNode }) => (
+    <main className="relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden bg-background px-8 text-center">
+      <Backdrop />
+      <div className="relative z-10 flex flex-col items-center gap-3">{children}</div>
+    </main>
+  );
+
   if (phase === 'loading') {
     return (
-      <main className="flex h-[100dvh] items-center justify-center bg-background px-6 text-center">
+      <Screen>
+        <div className="h-11 w-11 animate-spin rounded-full border-[3px] border-primary/25 border-t-primary" />
         <p className="text-sm text-muted">Opening your chat…</p>
-      </main>
+      </Screen>
     );
   }
 
   if (phase === 'invalid') {
     return (
-      <main className="flex h-[100dvh] flex-col items-center justify-center gap-3 bg-background px-8 text-center">
-        <AlertCircle className="h-10 w-10 text-amber-500" aria-hidden />
+      <Screen>
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/12">
+          <AlertCircle className="h-8 w-8 text-amber-500" aria-hidden />
+        </div>
         <h1 className="text-lg font-semibold">This chat link has expired</h1>
-        <p className="max-w-sm text-sm text-muted">
-          Go back to WhatsApp and tap the most recent “Open private chat” link, or send the business a
-          message to get a new one.
+        <p className="max-w-xs text-sm leading-relaxed text-muted">
+          Go back to WhatsApp and tap the most recent “Open private chat” link, or message the business
+          to get a new one.
         </p>
-      </main>
+      </Screen>
     );
   }
 
   if (phase === 'error') {
     return (
-      <main className="flex h-[100dvh] flex-col items-center justify-center gap-3 bg-background px-8 text-center">
-        <AlertCircle className="h-10 w-10 text-red-500" aria-hidden />
+      <Screen>
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/12">
+          <AlertCircle className="h-8 w-8 text-red-500" aria-hidden />
+        </div>
         <h1 className="text-lg font-semibold">Could not open the chat</h1>
-        <p className="max-w-sm text-sm text-muted">{errorText}</p>
-      </main>
+        <p className="max-w-xs text-sm leading-relaxed text-muted">{errorText}</p>
+      </Screen>
     );
   }
 
   const callActive = call.phase !== 'idle';
+  const ringing = call.phase === 'calling' || call.phase === 'incoming';
 
   return (
-    <main className="flex h-[100dvh] flex-col bg-background">
-      {/* The remote audio. Never rendered conditionally: the element has to
-          exist before ontrack fires, or the first seconds land nowhere. */}
+    <main className="relative flex h-[100dvh] flex-col overflow-hidden bg-background">
+      <Backdrop />
+
+      {/* Always mounted: ontrack fires before the call sheet would appear,
+          and the first seconds of audio would land nowhere. */}
       <audio ref={call.remoteAudioRef} autoPlay playsInline className="hidden" />
 
-      {/* Header — the business, and nothing that navigates anywhere else. */}
-      <header className="flex shrink-0 items-center gap-3 border-b border-border/60 bg-surface/80 px-4 py-3 pt-[calc(0.75rem+env(safe-area-inset-top,0px))] backdrop-blur-xl">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary/15 text-sm font-semibold uppercase text-primary">
-          {title.slice(0, 2)}
+      {/* Header */}
+      <header className="relative z-20 flex shrink-0 items-center gap-3 border-b border-border/50 bg-surface/70 px-4 pb-3 pt-[calc(0.85rem+env(safe-area-inset-top,0px))] backdrop-blur-xl">
+        <div className="relative shrink-0">
+          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-hover text-[13px] font-bold text-white shadow-lg shadow-primary/25">
+            {initials}
+          </div>
+          {connected && agentOnline && (
+            <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-surface bg-green-500" />
+          )}
         </div>
+
         <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[15px] font-semibold leading-tight">{title}</h1>
-          <p className="flex items-center gap-1 text-[11px] leading-tight text-muted" aria-live="polite">
+          <h1 className="truncate text-[15px] font-semibold leading-tight tracking-tight">{title}</h1>
+          <p className="mt-0.5 flex items-center gap-1.5 text-[11.5px] leading-tight text-muted" aria-live="polite">
             {!connected ? (
               <>
-                <ShieldCheck className="h-3 w-3" aria-hidden />
+                <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden />
                 Reconnecting…
               </>
             ) : agentTyping ? (
               <span className="font-medium text-primary">typing…</span>
+            ) : agentOnline ? (
+              <span className="font-medium text-green-600 dark:text-green-500">Online</span>
             ) : (
               <>
-                <span
-                  className={`h-2 w-2 shrink-0 rounded-full ${agentOnline ? 'bg-green-500' : 'bg-zinc-400'}`}
-                  aria-hidden
-                />
-                {agentOnline ? 'Online' : 'Offline'}
+                <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden />
+                Secure chat
               </>
             )}
           </p>
         </div>
+
         <button
           type="button"
           onClick={() => void call.startCall()}
           disabled={callActive || !connected}
           aria-label="Call"
-          className="flex h-10 w-10 items-center justify-center rounded-full text-muted transition-colors hover:bg-foreground/5 hover:text-foreground disabled:opacity-40"
+          className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary transition active:scale-90 disabled:opacity-35"
         >
-          <Phone className="h-5 w-5" />
+          <Phone className="h-[18px] w-[18px]" />
         </button>
       </header>
 
       {/* Transcript */}
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4">
+      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5">
         {messages.length === 0 ? (
-          <p className="mt-10 text-center text-sm text-muted">
-            No messages yet. Say hello to start the conversation.
-          </p>
+          <div className="mt-16 flex flex-col items-center gap-3 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+              <MessageCircle className="h-7 w-7 text-primary" aria-hidden />
+            </div>
+            <p className="text-[15px] font-medium">Start the conversation</p>
+            <p className="max-w-[15rem] text-[13px] leading-relaxed text-muted">
+              Send a message and someone will get back to you here.
+            </p>
+          </div>
         ) : (
-          <ul className="flex flex-col gap-2">
-            {messages.map((m) => {
+          <ul className="flex flex-col">
+            {messages.map((m, i) => {
+              const prev = messages[i - 1];
+              const next = messages[i + 1];
               const mine = m.from === 'me';
+              const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
+              const first = newDay || startsNewGroup(m, prev);
+              const last = !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
+
               return (
-                <li key={m.id} className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
-                  <div className="max-w-[85%] md:max-w-[65%]">
-                    <ChatBubble isSent={mine}>
+                <li key={m.id} className="contents">
+                  {newDay && (
+                    <div className="my-4 flex justify-center">
+                      <span className="rounded-full bg-surface/80 px-3 py-1 text-[11px] font-medium text-muted shadow-sm backdrop-blur">
+                        {dayLabel(m.createdAt)}
+                      </span>
+                    </div>
+                  )}
+
+                  <div
+                    className={`flex ${mine ? 'justify-end' : 'justify-start'} ${last ? 'mb-2.5' : 'mb-0.5'}`}
+                  >
+                    <div
+                      className={[
+                        'max-w-[80%] px-4 py-2.5 text-[15px] leading-relaxed shadow-sm md:max-w-[62%]',
+                        // Square off the inner corner of a run so a group
+                        // reads as one block instead of separate cards.
+                        mine
+                          ? 'bg-gradient-to-br from-primary to-primary-hover text-white shadow-primary/20'
+                          : 'border border-border/50 bg-surface text-foreground',
+                        'rounded-2xl',
+                        mine ? (first ? '' : 'rounded-tr-md') : first ? '' : 'rounded-tl-md',
+                        mine ? (last ? '' : 'rounded-br-md') : last ? '' : 'rounded-bl-md',
+                      ].join(' ')}
+                    >
                       {m.hasMedia && !m.text && (
-                        <p className="text-[15px] italic opacity-80">[{m.type}]</p>
+                        <p className="italic opacity-75">[{m.type}]</p>
                       )}
-                      {m.text && (
-                        <p className="whitespace-pre-wrap break-words text-[15px] leading-relaxed">{m.text}</p>
+                      {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
+                      {last && (
+                        <div
+                          className={`mt-1 select-none text-right text-[10.5px] ${mine ? 'text-white/70' : 'text-muted'}`}
+                        >
+                          {formatTime(m.createdAt)}
+                        </div>
                       )}
-                      <div
-                        className={`mt-1 select-none text-[11px] ${mine ? 'text-white/75' : 'text-muted'} text-right`}
-                      >
-                        {formatTime(m.createdAt)}
-                      </div>
-                    </ChatBubble>
+                    </div>
                   </div>
                 </li>
               );
             })}
           </ul>
         )}
+
+        {agentTyping && messages.length > 0 && <TypingBubble />}
         <div ref={bottomRef} />
       </div>
 
-      {errorText && phase === 'ready' && (
-        <p className="shrink-0 bg-red-500/10 px-4 py-2 text-center text-xs text-red-600 dark:text-red-400">
+      {errorText && (
+        <p className="relative z-10 shrink-0 bg-red-500/10 px-4 py-2 text-center text-xs font-medium text-red-600 dark:text-red-400">
           {errorText}
         </p>
       )}
 
       {/* Composer */}
       <form
-        className="flex shrink-0 items-end gap-2 border-t border-border/60 bg-surface/80 px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] backdrop-blur-xl"
+        className="relative z-20 flex shrink-0 items-end gap-2 border-t border-border/50 bg-surface/70 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pt-3 backdrop-blur-xl"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSend();
@@ -346,28 +448,33 @@ export default function GuestChatWindow({ token }: { token: string }) {
           rows={1}
           placeholder="Type a message…"
           aria-label="Message"
-          className="max-h-32 min-h-[44px] flex-1 resize-none rounded-2xl border border-border/60 bg-background px-4 py-3 text-[15px] outline-none focus:border-primary/60"
+          className="max-h-32 min-h-[46px] flex-1 resize-none rounded-[22px] border border-border/60 bg-background px-4 py-3 text-[15px] outline-none transition focus:border-primary/50 focus:ring-4 focus:ring-primary/10"
         />
         <button
           type="submit"
           disabled={!draft.trim() || sending}
           aria-label="Send"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary text-white transition-opacity disabled:opacity-40"
+          className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-hover text-white shadow-lg shadow-primary/25 transition active:scale-90 disabled:scale-95 disabled:opacity-35 disabled:shadow-none"
         >
-          <Send className="h-5 w-5" />
+          <Send className="h-[18px] w-[18px]" />
         </button>
       </form>
 
-      {/* Call sheet — above everything, because a ringing call must not be
-          something the user has to go looking for. */}
+      {/* Call sheet */}
       {callActive && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-6 bg-background/95 px-8 text-center backdrop-blur-xl">
-          <div className="flex h-24 w-24 items-center justify-center rounded-full bg-primary/15 text-2xl font-semibold uppercase text-primary">
-            {title.slice(0, 2)}
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-7 bg-background/95 px-8 text-center backdrop-blur-2xl">
+          <div className="relative">
+            {ringing && (
+              <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" aria-hidden />
+            )}
+            <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-hover text-3xl font-bold text-white shadow-2xl shadow-primary/30">
+              {initials}
+            </div>
           </div>
+
           <div>
-            <h2 className="text-xl font-semibold">{title}</h2>
-            <p className="mt-1 text-sm text-muted">
+            <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+            <p className="mt-1.5 text-sm text-muted">
               {call.phase === 'calling' && 'Ringing…'}
               {call.phase === 'incoming' && 'Incoming call'}
               {call.phase === 'connecting' && 'Connecting…'}
@@ -377,12 +484,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
           </div>
 
           {call.phase === 'incoming' ? (
-            <div className="flex items-center gap-8">
+            <div className="flex items-center gap-10">
               <button
                 type="button"
                 onClick={call.endCall}
                 aria-label="Decline"
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition active:scale-90"
               >
                 <PhoneOff className="h-6 w-6" />
               </button>
@@ -390,7 +497,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 type="button"
                 onClick={() => void call.acceptCall()}
                 aria-label="Accept"
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-green-500 text-white"
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-green-500 text-white shadow-lg shadow-green-500/30 transition active:scale-90"
               >
                 <Phone className="h-6 w-6" />
               </button>
@@ -399,17 +506,19 @@ export default function GuestChatWindow({ token }: { token: string }) {
             <button
               type="button"
               onClick={call.dismiss}
-              className="rounded-full bg-foreground/10 px-6 py-3 text-sm font-medium"
+              className="rounded-full bg-foreground/10 px-7 py-3 text-sm font-semibold transition active:scale-95"
             >
               Close
             </button>
           ) : (
-            <div className="flex items-center gap-8">
+            <div className="flex items-center gap-10">
               <button
                 type="button"
                 onClick={call.toggleMute}
                 aria-label={call.muted ? 'Unmute' : 'Mute'}
-                className="flex h-14 w-14 items-center justify-center rounded-full bg-foreground/10"
+                className={`flex h-14 w-14 items-center justify-center rounded-full transition active:scale-90 ${
+                  call.muted ? 'bg-foreground text-background' : 'bg-foreground/10'
+                }`}
               >
                 {call.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
               </button>
@@ -417,7 +526,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 type="button"
                 onClick={call.endCall}
                 aria-label="End call"
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white"
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition active:scale-90"
               >
                 <PhoneOff className="h-6 w-6" />
               </button>
@@ -426,5 +535,21 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * Two soft colour washes behind everything.
+ *
+ * Fixed and pointer-events-none so it never intercepts a tap or scrolls
+ * with the transcript, and built from the theme's own primary so it
+ * follows light and dark without a second palette to keep in step.
+ */
+function Backdrop() {
+  return (
+    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden>
+      <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary/12 blur-3xl" />
+      <div className="absolute -bottom-32 -right-20 h-80 w-80 rounded-full bg-primary/8 blur-3xl" />
+    </div>
   );
 }
