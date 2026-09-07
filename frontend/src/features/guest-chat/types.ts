@@ -6,6 +6,8 @@ export interface GuestMessage {
   type: string;
   text?: string;
   hasMedia: boolean;
+  /** Present when there is an attachment — what the media route is asked for. */
+  mediaId?: string;
   createdAt: string;
 }
 
@@ -37,6 +39,7 @@ export function realtimeToGuestMessage(m: RealtimeMessage): GuestMessage {
     type: m.type,
     text: m.text,
     hasMedia: Boolean(m.mediaId),
+    mediaId: m.mediaId,
     createdAt: m.createdAt,
   };
 }

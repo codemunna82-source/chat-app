@@ -2,15 +2,17 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { Phone, PhoneOff, Send, ShieldCheck, AlertCircle, Mic, MicOff, MessageCircle } from 'lucide-react';
+import { Phone, PhoneOff, Send, ShieldCheck, AlertCircle, Mic, MicOff, MessageCircle, ImagePlus, X } from 'lucide-react';
 import {
   GuestLinkInvalidError,
   fetchIceServers,
   fetchMessages,
   fetchSession,
+  fetchMediaObjectUrl,
   markRead,
   sendMessage,
   socketUrl,
+  uploadImages,
 } from './guestApi';
 import { useGuestCall } from './useGuestCall';
 import { realtimeToGuestMessage, type GuestMessage, type GuestSession, type RealtimeMessage } from './types';
@@ -96,6 +98,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [socket, setSocket] = useState<Socket | null>(null);
   const [agentOnline, setAgentOnline] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
+  const [uploading, setUploading] = useState(0);
+  const [lightbox, setLightbox] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   /** Clears the indicator if the other side stops typing without saying so — a
@@ -244,6 +249,33 @@ export default function GuestChatWindow({ token }: { token: string }) {
     }
   }, [draft, sending, token, stopTyping]);
 
+  const handleFiles = useCallback(
+    async (fileList: FileList | null) => {
+      const files = Array.from(fileList ?? []);
+      if (files.length === 0) return;
+
+      setErrorText(null);
+      setUploading((n) => n + files.length);
+      try {
+        const { sent, failed } = await uploadImages(token, files);
+        setMessages((prev) => sent.reduce(mergeMessage, prev));
+        // Partial success is still success for what got through; only the
+        // ones that did not are worth saying anything about.
+        if (failed.length > 0) {
+          setErrorText(
+            failed.length === 1 ? failed[0]!.message : `${failed.length} images could not be sent.`,
+          );
+        }
+      } catch (err) {
+        if (err instanceof GuestLinkInvalidError) setPhase('invalid');
+        else setErrorText(err instanceof Error ? err.message : 'Could not send those images.');
+      } finally {
+        setUploading((n) => Math.max(0, n - files.length));
+      }
+    },
+    [token],
+  );
+
   const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
 
   const initials = title.slice(0, 2).toUpperCase();
@@ -383,7 +415,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
                   >
                     <div
                       className={[
-                        'max-w-[80%] px-4 py-2.5 text-[15px] leading-relaxed shadow-sm md:max-w-[62%]',
+                        'max-w-[80%] text-[15px] leading-relaxed shadow-sm md:max-w-[62%]',
+                        // An image bubble hugs the picture; a text one pads it.
+                        m.mediaId && m.type === 'image' ? 'p-1.5' : 'px-4 py-2.5',
                         // Square off the inner corner of a run so a group
                         // reads as one block instead of separate cards.
                         mine
@@ -394,8 +428,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         mine ? (last ? '' : 'rounded-br-md') : last ? '' : 'rounded-bl-md',
                       ].join(' ')}
                     >
-                      {m.hasMedia && !m.text && (
-                        <p className="italic opacity-75">[{m.type}]</p>
+                      {m.mediaId && m.type === 'image' ? (
+                        <ChatImage token={token} mediaId={m.mediaId} onOpen={setLightbox} />
+                      ) : (
+                        m.hasMedia && !m.text && <p className="italic opacity-75">[{m.type}]</p>
                       )}
                       {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
                       {last && (
@@ -417,6 +453,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
         <div ref={bottomRef} />
       </div>
 
+      {uploading > 0 && (
+        <p className="relative z-10 shrink-0 bg-primary/10 px-4 py-2 text-center text-xs font-medium text-primary">
+          Sending {uploading} {uploading === 1 ? 'image' : 'images'}…
+        </p>
+      )}
+
       {errorText && (
         <p className="relative z-10 shrink-0 bg-red-500/10 px-4 py-2 text-center text-xs font-medium text-red-600 dark:text-red-400">
           {errorText}
@@ -431,6 +473,29 @@ export default function GuestChatWindow({ token }: { token: string }) {
           void handleSend();
         }}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            void handleFiles(e.target.files);
+            // Cleared so picking the same file twice in a row still fires
+            // a change event.
+            e.target.value = '';
+          }}
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading > 0}
+          aria-label="Send images"
+          className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-muted transition active:scale-90 hover:bg-foreground/5 hover:text-foreground disabled:opacity-35"
+        >
+          <ImagePlus className="h-[20px] w-[20px]" />
+        </button>
+
         <textarea
           value={draft}
           onChange={(e) => {
@@ -534,7 +599,88 @@ export default function GuestChatWindow({ token }: { token: string }) {
           )}
         </div>
       )}
+
+      {/* Full-size view. The object URL is the one the bubble already
+          holds, so opening a picture costs no second download. */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4"
+          onClick={() => setLightbox(null)}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image"
+        >
+          <button
+            type="button"
+            onClick={() => setLightbox(null)}
+            aria-label="Close image"
+            className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={lightbox} alt="Shared image" className="max-h-full max-w-full object-contain" />
+        </div>
+      )}
     </main>
+  );
+}
+
+/**
+ * One attached image.
+ *
+ * Fetched as a blob rather than pointed at with a src, because the bytes
+ * need the link token and an <img> tag cannot send an Authorization
+ * header. The object URL is revoked when this unmounts — without that,
+ * every image stays in memory for the life of the tab.
+ */
+function ChatImage({ token, mediaId, onOpen }: { token: string; mediaId: string; onOpen: (url: string) => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    let created: string | null = null;
+
+    fetchMediaObjectUrl(token, mediaId)
+      .then((objectUrl) => {
+        if (cancelled) {
+          URL.revokeObjectURL(objectUrl);
+          return;
+        }
+        created = objectUrl;
+        setUrl(objectUrl);
+      })
+      .catch(() => {
+        if (!cancelled) setFailed(true);
+      });
+
+    return () => {
+      cancelled = true;
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [token, mediaId]);
+
+  if (failed) {
+    return (
+      <div className="flex h-40 w-56 items-center justify-center rounded-xl bg-foreground/5 text-xs text-muted">
+        Image unavailable
+      </div>
+    );
+  }
+
+  if (!url) {
+    return <div className="h-40 w-56 animate-pulse rounded-xl bg-foreground/10" />;
+  }
+
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt="Shared image"
+      onClick={() => onOpen(url)}
+      className="max-h-72 w-auto max-w-full cursor-zoom-in rounded-xl object-cover"
+    />
   );
 }
 

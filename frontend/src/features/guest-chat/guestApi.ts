@@ -112,3 +112,64 @@ export function fetchIceServers(
     '/ice',
   ).then((d) => d.iceServers);
 }
+
+export interface UploadResult {
+  sent: GuestMessage[];
+  failed: { filename: string; message: string }[];
+}
+
+/**
+ * Uploads images as multipart.
+ *
+ * Not through request(): that sets Content-Type: application/json, and a
+ * multipart body needs the browser to write the header itself so it can
+ * include the boundary it generated. Setting it by hand produces a body
+ * the server cannot parse.
+ */
+export async function uploadImages(token: string, files: File[]): Promise<UploadResult> {
+  const form = new FormData();
+  for (const file of files) form.append('files', file);
+
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/guest/media`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+  } catch (err) {
+    throw new GuestNetworkError(err);
+  }
+
+  if (res.status === 401) throw new GuestLinkInvalidError();
+  const body = (await res.json().catch(() => null)) as
+    | { data?: GuestMessage[]; meta?: { failed?: { filename: string; message: string }[] }; error?: { message?: string } }
+    | null;
+  if (!res.ok) {
+    throw new Error(body?.error?.message ?? `Upload failed (${res.status})`);
+  }
+  return { sent: body?.data ?? [], failed: body?.meta?.failed ?? [] };
+}
+
+/**
+ * An image as a blob URL.
+ *
+ * The bytes need the link token, and an <img src> cannot carry an
+ * Authorization header — so rather than putting the token in a query
+ * string, where it would end up in every access log along the way, the
+ * bytes are fetched and handed to the tag as an object URL. Callers must
+ * revoke it when the element goes away.
+ */
+export async function fetchMediaObjectUrl(token: string, mediaId: string): Promise<string> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/guest/media/${encodeURIComponent(mediaId)}`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    throw new GuestNetworkError(err);
+  }
+  if (res.status === 401) throw new GuestLinkInvalidError();
+  if (!res.ok) throw new Error(`Could not load image (${res.status})`);
+  return URL.createObjectURL(await res.blob());
+}
