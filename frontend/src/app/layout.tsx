@@ -1,10 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Sora, Fraunces } from "next/font/google";
 import "./globals.css";
-import { SocketProvider } from "@/contexts/SocketContext";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { MainClientProviders } from "@/components/MainClientProviders";
-import { WebVitals } from "@/components/WebVitals";
 
 const sora = Sora({ subsets: ["latin"], display: "swap", variable: "--font-sans" });
 const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-display" });
@@ -67,12 +64,7 @@ export default function RootLayout({
           storageKey="chat-ui-theme"
           disableTransitionOnChange={false}
         >
-          <WebVitals />
-          <SocketProvider>
-            <MainClientProviders>
-              {children}
-            </MainClientProviders>
-          </SocketProvider>
+          {children}
         </ThemeProvider>
       </body>
     </html>
