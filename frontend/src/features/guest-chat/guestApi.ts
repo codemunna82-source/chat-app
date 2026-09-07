@@ -21,6 +21,23 @@ export function socketUrl(): string {
   return raw.replace(/\/api\/?$/, '').replace(/\/+$/, '');
 }
 
+/**
+ * Thrown when the request never reached the server at all.
+ *
+ * A browser reports a blocked CORS response, a server that is still
+ * waking, and no connection identically — as a rejected fetch with a
+ * message like "Load failed". Showing that string to a customer explains
+ * nothing, so all three collapse into one sentence that suggests the only
+ * useful action.
+ */
+export class GuestNetworkError extends Error {
+  constructor(cause: unknown) {
+    super('Could not reach the chat server. It may still be starting up — try again in a moment.');
+    this.name = 'GuestNetworkError';
+    this.cause = cause;
+  }
+}
+
 /** Thrown for a link that is unknown, revoked or expired — the one error the UI treats specially. */
 export class GuestLinkInvalidError extends Error {
   constructor() {
@@ -30,14 +47,22 @@ export class GuestLinkInvalidError extends Error {
 }
 
 async function request<T>(token: string, path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${apiBaseUrl()}/guest${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(init?.headers ?? {}),
-    },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/guest${path}`, {
+      ...init,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`,
+        ...(init?.headers ?? {}),
+      },
+    });
+  } catch (err) {
+    // fetch only rejects when no response came back — a CORS block, a
+    // sleeping server, or no network. An HTTP error status resolves
+    // normally and is handled below.
+    throw new GuestNetworkError(err);
+  }
 
   if (res.status === 401) throw new GuestLinkInvalidError();
   if (!res.ok) {
