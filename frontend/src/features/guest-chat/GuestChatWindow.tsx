@@ -87,6 +87,22 @@ function TypingBubble() {
   );
 }
 
+/**
+ * The frame every full-screen state shares, so they cannot drift apart.
+ *
+ * Module level rather than inside the component: a component declared in a
+ * render body is a new type on every render, which makes React throw away
+ * and rebuild its subtree instead of updating it.
+ */
+function Screen({ children }: { children: React.ReactNode }) {
+  return (
+    <main className="relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden bg-background px-8 text-center">
+      <Backdrop />
+      <div className="relative z-10 flex flex-col items-center gap-3">{children}</div>
+    </main>
+  );
+}
+
 export default function GuestChatWindow({ token }: { token: string }) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [errorText, setErrorText] = useState<string | null>(null);
@@ -279,14 +295,6 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
 
   const initials = title.slice(0, 2).toUpperCase();
-
-  /** Every full-screen state shares one frame, so they cannot drift apart. */
-  const Screen = ({ children }: { children: React.ReactNode }) => (
-    <main className="relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden bg-background px-8 text-center">
-      <Backdrop />
-      <div className="relative z-10 flex flex-col items-center gap-3">{children}</div>
-    </main>
-  );
 
   if (phase === 'loading') {
     return (
