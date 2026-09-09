@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { Phone, PhoneOff, Send, ShieldCheck, AlertCircle, Mic, MicOff, MessageCircle, ImagePlus, X } from 'lucide-react';
+import { Mic, MicOff, Phone, PhoneOff } from 'lucide-react';
 import {
   GuestLinkInvalidError,
   fetchIceServers,
@@ -15,20 +15,62 @@ import {
   uploadImages,
 } from './guestApi';
 import { useGuestCall } from './useGuestCall';
+import { EmojiPicker } from './EmojiPicker';
+import {
+  BackIcon,
+  CameraIcon,
+  ChevronDownIcon,
+  ClockTick,
+  CloseIcon,
+  LockIcon,
+  MicIcon,
+  PersonIcon,
+  PhoneIcon,
+  PlusIcon,
+  SendIcon,
+  SmileyIcon,
+  TickIcon,
+} from './waIcons';
 import { realtimeToGuestMessage, type GuestMessage, type GuestSession, type RealtimeMessage } from './types';
 
 type Phase = 'loading' | 'ready' | 'invalid' | 'error';
 
-/** Newest last, and never the same message twice — the customer's own
- *  message arrives both as the POST response and over the socket, because
- *  they are in the conversation room like any other participant. */
-function mergeMessage(list: GuestMessage[], incoming: GuestMessage): GuestMessage[] {
+/**
+ * A message the customer has sent but the server has not acknowledged yet.
+ *
+ * Kept in the same list as everything else rather than in a parallel array:
+ * it has to sort into the thread by time, and a second list would have to
+ * be interleaved on every render to do that.
+ */
+type ThreadMessage = GuestMessage & { pending?: boolean };
+
+/**
+ * Newest last, and never the same message twice.
+ *
+ * A message the customer sends comes back twice — once as the POST
+ * response, once over the socket, because they are in the conversation
+ * room like any other participant — and a third time it is already on
+ * screen as an unacknowledged draft. All three collapse here: matching id
+ * wins, otherwise an inbound echo of our own text replaces the pending row
+ * in place, so the bubble never jumps or duplicates.
+ */
+function mergeMessage(list: ThreadMessage[], incoming: ThreadMessage): ThreadMessage[] {
   if (list.some((m) => m.id === incoming.id)) return list;
+
+  if (incoming.from === 'me' && !incoming.hasMedia) {
+    const idx = list.findIndex((m) => m.pending && m.text === incoming.text && !m.hasMedia);
+    if (idx >= 0) {
+      const copy = [...list];
+      copy[idx] = incoming;
+      return copy;
+    }
+  }
+
   return [...list, incoming];
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 /** Ticks once a second only while a call is up, rather than re-rendering the whole window. */
@@ -44,7 +86,7 @@ function CallDuration({ since }: { since: number }) {
   return <span>{`${mm}:${ss}`}</span>;
 }
 
-/** "Today" / "Yesterday" / a short date — the chip above the first message of each day. */
+/** "TODAY" / "YESTERDAY" / a short date — the chip above the first message of each day. */
 function dayLabel(iso: string): string {
   const d = new Date(iso);
   const today = new Date();
@@ -56,15 +98,15 @@ function dayLabel(iso: string): string {
   if (sameDay(d, yesterday)) return 'Yesterday';
   return d.toLocaleDateString([], {
     day: 'numeric',
-    month: 'short',
+    month: 'long',
     ...(d.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' }),
   });
 }
 
-/** Messages from the same side within a few minutes read as one block. */
+/** Messages from the same side within a few minutes read as one block, and only the first gets a tail. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
-function startsNewGroup(current: GuestMessage, previous?: GuestMessage): boolean {
+function startsNewGroup(current: ThreadMessage, previous?: ThreadMessage): boolean {
   if (!previous) return true;
   if (previous.from !== current.from) return true;
   return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() > GROUP_WINDOW_MS;
@@ -73,18 +115,30 @@ function startsNewGroup(current: GuestMessage, previous?: GuestMessage): boolean
 /** The three-dot bubble, using staggered bounces rather than a keyframe of its own. */
 function TypingBubble() {
   return (
-    <div className="flex justify-start">
-      <div className="flex items-center gap-1 rounded-2xl rounded-bl-md border border-border/50 bg-surface px-4 py-3 shadow-sm">
+    <div className="mb-2 flex justify-start px-1">
+      <div className="wa-tail-in relative flex items-center gap-1 rounded-[7.5px] rounded-tl-none bg-[var(--wa-in)] px-3.5 py-3 shadow-[var(--wa-bubble-shadow)]">
         {[0, 150, 300].map((delay) => (
           <span
             key={delay}
-            className="h-1.5 w-1.5 animate-bounce rounded-full bg-muted"
+            className="h-1.5 w-1.5 animate-bounce rounded-full bg-[var(--wa-meta)]"
             style={{ animationDelay: delay + 'ms' }}
           />
         ))}
       </div>
     </div>
   );
+}
+
+/**
+ * Sent / delivered, under the customer's own messages.
+ *
+ * Two states only. There is no blue "read" tick because nothing tells a web
+ * guest when an agent opened the thread, and a read receipt the customer
+ * cannot rely on is worse than none.
+ */
+function MessageTicks({ pending }: { pending?: boolean }) {
+  if (pending) return <ClockTick className="h-[13px] w-[13px] text-[var(--wa-tick)]" />;
+  return <TickIcon double className="h-[13px] w-[16px] text-[var(--wa-tick)]" />;
 }
 
 /**
@@ -96,8 +150,7 @@ function TypingBubble() {
  */
 function Screen({ children }: { children: React.ReactNode }) {
   return (
-    <main className="relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden bg-background px-8 text-center">
-      <Backdrop />
+    <main className="wa wa-wall relative flex h-[100dvh] flex-col items-center justify-center overflow-hidden px-8 text-center text-[var(--wa-text)]">
       <div className="relative z-10 flex flex-col items-center gap-3">{children}</div>
     </main>
   );
@@ -107,7 +160,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [phase, setPhase] = useState<Phase>('loading');
   const [errorText, setErrorText] = useState<string | null>(null);
   const [session, setSession] = useState<GuestSession | null>(null);
-  const [messages, setMessages] = useState<GuestMessage[]>([]);
+  const [messages, setMessages] = useState<ThreadMessage[]>([]);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
   const [connected, setConnected] = useState(false);
@@ -118,10 +171,18 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [lightbox, setLightbox] = useState<string | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  const [atBottom, setAtBottom] = useState(true);
+  const [notice, setNotice] = useState<string | null>(null);
 
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
+  /** Counter behind the temporary ids of unacknowledged messages. */
+  const draftIdRef = useRef(0);
+
   /** Clears the indicator if the other side stops typing without saying so — a
    *  dropped socket or a closed app leaves no stop event behind. */
   const typingClearRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,10 +278,15 @@ export default function GuestChatWindow({ token }: { token: string }) {
   useEffect(() => {
     // Not while older messages are being spliced in above — that is a
     // length change too, and jumping to the bottom is the opposite of
-    // what the customer just asked for.
-    if (loadingOlder) return;
+    // what the customer just asked for. Not either when they have
+    // scrolled up to read: the jump-to-latest button is there for that.
+    if (loadingOlder || !atBottom) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages.length, loadingOlder]);
+  }, [messages.length, loadingOlder, atBottom, agentTyping, emojiOpen]);
+
+  const scrollToBottom = useCallback(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }, []);
 
   const stopTyping = useCallback(() => {
     if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
@@ -284,13 +350,37 @@ export default function GuestChatWindow({ token }: { token: string }) {
     const text = draft.trim();
     if (!text || sending) return;
 
+    // On screen before the round trip, with a clock instead of a tick. The
+    // alternative — an empty box and a pause — is what makes a web chat
+    // feel like a web page rather than a messenger.
+    const tempId = `pending-${draftIdRef.current++}`;
+    const optimistic: ThreadMessage = {
+      id: tempId,
+      from: 'me',
+      type: 'text',
+      text,
+      hasMedia: false,
+      createdAt: new Date().toISOString(),
+      pending: true,
+    };
+
     setSending(true);
     setDraft('');
+    setEmojiOpen(false);
+    setAtBottom(true);
+    setMessages((prev) => [...prev, optimistic]);
     stopTyping();
+
     try {
       const saved = await sendMessage(token, text);
-      setMessages((prev) => mergeMessage(prev, saved));
+      setMessages((prev) => {
+        // The socket echo may have already replaced the pending row, in
+        // which case this id is present and merge leaves the list alone.
+        const withoutTemp = prev.filter((m) => m.id !== tempId);
+        return mergeMessage(withoutTemp, saved);
+      });
     } catch (err) {
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       // Put the text back rather than losing what they typed.
       setDraft(text);
       if (err instanceof GuestLinkInvalidError) {
@@ -309,6 +399,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       if (files.length === 0) return;
 
       setErrorText(null);
+      setAtBottom(true);
       setUploading((n) => n + files.length);
       try {
         const { sent, failed } = await uploadImages(token, files);
@@ -330,15 +421,47 @@ export default function GuestChatWindow({ token }: { token: string }) {
     [token],
   );
 
-  const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
+  const insertEmoji = useCallback((emoji: string) => {
+    const field = inputRef.current;
+    setDraft((prev) => {
+      // At the caret, not at the end: a customer who taps back into the
+      // middle of what they typed expects the emoji where the cursor is.
+      const start = field?.selectionStart ?? prev.length;
+      const end = field?.selectionEnd ?? prev.length;
+      const next = prev.slice(0, start) + emoji + prev.slice(end);
+      requestAnimationFrame(() => {
+        if (!field) return;
+        const caret = start + emoji.length;
+        field.setSelectionRange(caret, caret);
+      });
+      return next;
+    });
+  }, []);
 
-  const initials = title.slice(0, 2).toUpperCase();
+  /** A one-line message that fades itself out — for things with nothing to decide. */
+  const flash = useCallback((message: string) => {
+    setNotice(message);
+    setTimeout(() => setNotice((current) => (current === message ? null : current)), 3200);
+  }, []);
+
+  const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
+  const initials = useMemo(
+    () =>
+      title
+        .split(/\s+/)
+        .filter(Boolean)
+        .slice(0, 2)
+        .map((w) => w[0]!)
+        .join('')
+        .toUpperCase(),
+    [title],
+  );
 
   if (phase === 'loading') {
     return (
       <Screen>
-        <div className="h-11 w-11 animate-spin rounded-full border-[3px] border-primary/25 border-t-primary" />
-        <p className="text-sm text-muted">Opening your chat…</p>
+        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--wa-accent)]/25 border-t-[var(--wa-accent)]" />
+        <p className="text-sm text-[var(--wa-meta)]">Opening your chat…</p>
       </Screen>
     );
   }
@@ -346,11 +469,11 @@ export default function GuestChatWindow({ token }: { token: string }) {
   if (phase === 'invalid') {
     return (
       <Screen>
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/12">
-          <AlertCircle className="h-8 w-8 text-amber-500" aria-hidden />
+        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--wa-notice)]">
+          <LockIcon className="h-7 w-7 text-[var(--wa-notice-text)]" />
         </div>
         <h1 className="text-lg font-semibold">This chat link has expired</h1>
-        <p className="max-w-xs text-sm leading-relaxed text-muted">
+        <p className="max-w-xs text-sm leading-relaxed text-[var(--wa-meta)]">
           Go back to WhatsApp and tap the most recent “Open private chat” link, or message the business
           to get a new one.
         </p>
@@ -362,167 +485,237 @@ export default function GuestChatWindow({ token }: { token: string }) {
     return (
       <Screen>
         <div className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500/12">
-          <AlertCircle className="h-8 w-8 text-red-500" aria-hidden />
+          <CloseIcon className="h-7 w-7 text-red-500" />
         </div>
         <h1 className="text-lg font-semibold">Could not open the chat</h1>
-        <p className="max-w-xs text-sm leading-relaxed text-muted">{errorText}</p>
+        <p className="max-w-xs text-sm leading-relaxed text-[var(--wa-meta)]">{errorText}</p>
       </Screen>
     );
   }
 
   const callActive = call.phase !== 'idle';
   const ringing = call.phase === 'calling' || call.phase === 'incoming';
+  const hasDraft = draft.trim().length > 0;
 
   return (
-    <main className="relative flex h-[100dvh] flex-col overflow-hidden bg-background">
-      <Backdrop />
-
+    <main className="wa flex h-[100dvh] w-full flex-col overflow-hidden bg-[var(--wa-wall)] text-[var(--wa-text)] antialiased">
       {/* Always mounted: ontrack fires before the call sheet would appear,
           and the first seconds of audio would land nowhere. */}
       <audio ref={call.remoteAudioRef} autoPlay playsInline className="hidden" />
 
-      {/* Header */}
-      <header className="relative z-20 flex shrink-0 items-center gap-3 border-b border-border/50 bg-surface/70 px-4 pb-3 pt-[calc(0.85rem+env(safe-area-inset-top,0px))] backdrop-blur-xl">
+      {/* ── Header ─────────────────────────────────────────────── */}
+      <header className="z-20 flex shrink-0 items-center gap-2 bg-[var(--wa-header)] px-1.5 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-[var(--wa-header-text)] shadow-[0_1px_2px_rgba(11,20,26,0.08)]">
+        <button
+          type="button"
+          onClick={() => window.history.back()}
+          aria-label="Back"
+          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-full transition active:scale-90"
+        >
+          <BackIcon className="h-6 w-6" />
+        </button>
+
         <div className="relative shrink-0">
-          <div className="flex h-11 w-11 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-hover text-[13px] font-bold text-white shadow-lg shadow-primary/25">
-            {initials}
+          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/18 text-[13px] font-semibold text-[var(--wa-accent)]">
+            {initials || <PersonIcon className="h-6 w-6 opacity-70" />}
           </div>
-          {connected && agentOnline && (
-            <span className="absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-surface bg-green-500" />
-          )}
         </div>
 
-        <div className="min-w-0 flex-1">
-          <h1 className="truncate text-[15px] font-semibold leading-tight tracking-tight">{title}</h1>
-          <p className="mt-0.5 flex items-center gap-1.5 text-[11.5px] leading-tight text-muted" aria-live="polite">
-            {!connected ? (
-              <>
-                <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden />
-                Reconnecting…
-              </>
-            ) : agentTyping ? (
-              <span className="font-medium text-primary">typing…</span>
-            ) : agentOnline ? (
-              <span className="font-medium text-green-600 dark:text-green-500">Online</span>
-            ) : (
-              <>
-                <ShieldCheck className="h-3 w-3 shrink-0" aria-hidden />
-                Secure chat
-              </>
-            )}
+        <div className="min-w-0 flex-1 pl-1">
+          <h1 className="truncate text-[17px] font-medium leading-tight">{title}</h1>
+          <p className="truncate text-[12.5px] leading-[15px] text-[var(--wa-header-sub)]" aria-live="polite">
+            {!connected
+              ? 'connecting…'
+              : agentTyping
+                ? <span className="text-[var(--wa-accent)]">typing…</span>
+                : agentOnline
+                  ? 'online'
+                  : 'tap to chat'}
           </p>
         </div>
 
+        {/* No video-call button: this window carries audio only, and an
+            icon that opens nothing is worse than an icon that is absent. */}
         <button
           type="button"
           onClick={() => void call.startCall()}
           disabled={callActive || !connected}
-          aria-label="Call"
-          className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary transition active:scale-90 disabled:opacity-35"
+          aria-label="Voice call"
+          className="mr-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition active:scale-90 disabled:opacity-35"
         >
-          <Phone className="h-[18px] w-[18px]" />
+          <PhoneIcon className="h-[22px] w-[22px]" />
         </button>
       </header>
 
-      {/* Transcript */}
-      <div
-        ref={transcriptRef}
-        onScroll={(e) => {
-          if (e.currentTarget.scrollTop < 80) void loadOlder();
-        }}
-        className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5"
-      >
-        {loadingOlder && (
-          <p className="pb-3 text-center text-[11px] text-muted">Loading earlier messages…</p>
-        )}
-        {messages.length === 0 ? (
-          <div className="mt-16 flex flex-col items-center gap-3 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-              <MessageCircle className="h-7 w-7 text-primary" aria-hidden />
+      {/* ── Transcript ─────────────────────────────────────────── */}
+      <div className="wa-wall relative min-h-0 flex-1">
+        <div
+          ref={transcriptRef}
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            if (el.scrollTop < 80) void loadOlder();
+            setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+          }}
+          className="wa-scroll absolute inset-0 overflow-y-auto overscroll-contain px-2 py-3 sm:px-4"
+        >
+          <div className="mx-auto w-full max-w-[1100px]">
+            {/* The privacy notice, in the place the messenger puts it. The
+                wording is what is actually true here — the transport is
+                encrypted and the thread is readable only by this business —
+                rather than an end-to-end claim this architecture cannot
+                make, since messages are stored in the business's inbox. */}
+            <div className="mx-auto mb-2 max-w-[420px] rounded-lg bg-[var(--wa-notice)] px-3 py-2 text-center text-[12.5px] leading-[18px] text-[var(--wa-notice-text)] shadow-[var(--wa-bubble-shadow)]">
+              <LockIcon className="mr-1 inline-block h-3 w-3 -translate-y-[1px] align-middle" />
+              Messages and calls in this chat are private and encrypted in transit. Only you and{' '}
+              {title} can see them.
             </div>
-            <p className="text-[15px] font-medium">Start the conversation</p>
-            <p className="max-w-[15rem] text-[13px] leading-relaxed text-muted">
-              Send a message and someone will get back to you here.
-            </p>
-          </div>
-        ) : (
-          <ul className="flex flex-col">
-            {messages.map((m, i) => {
-              const prev = messages[i - 1];
-              const next = messages[i + 1];
-              const mine = m.from === 'me';
-              const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
-              const first = newDay || startsNewGroup(m, prev);
-              const last = !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
 
-              return (
-                <li key={m.id} className="contents">
-                  {newDay && (
-                    <div className="my-4 flex justify-center">
-                      <span className="rounded-full bg-surface/80 px-3 py-1 text-[11px] font-medium text-muted shadow-sm backdrop-blur">
-                        {dayLabel(m.createdAt)}
-                      </span>
-                    </div>
-                  )}
+            {/* The contact card the messenger shows at the top of a thread
+                with someone not in your address book. */}
+            <div className="mx-auto mb-3 w-full max-w-[400px] rounded-xl bg-[var(--wa-card)] px-5 py-4 text-center shadow-[var(--wa-panel-shadow)]">
+              <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--wa-accent)]/18 text-xl font-semibold text-[var(--wa-accent)]">
+                {initials || <PersonIcon className="h-9 w-9 opacity-70" />}
+              </div>
+              <p className="text-[17px] font-medium leading-tight">{title}</p>
+              {session?.contactName && (
+                <p className="mt-0.5 text-[13.5px] text-[var(--wa-card-sub)]">~{session.contactName}</p>
+              )}
+              <p className="mt-1 text-[12.5px] leading-[17px] text-[var(--wa-card-sub)]">
+                Business account · you opened this chat from a private link
+              </p>
+            </div>
 
-                  <div
-                    className={`flex ${mine ? 'justify-end' : 'justify-start'} ${last ? 'mb-2.5' : 'mb-0.5'}`}
-                  >
-                    <div
-                      className={[
-                        'max-w-[80%] text-[15px] leading-relaxed shadow-sm md:max-w-[62%]',
-                        // An image bubble hugs the picture; a text one pads it.
-                        m.mediaId && m.type === 'image' ? 'p-1.5' : 'px-4 py-2.5',
-                        // Square off the inner corner of a run so a group
-                        // reads as one block instead of separate cards.
-                        mine
-                          ? 'bg-gradient-to-br from-primary to-primary-hover text-white shadow-primary/20'
-                          : 'border border-border/50 bg-surface text-foreground',
-                        'rounded-2xl',
-                        mine ? (first ? '' : 'rounded-tr-md') : first ? '' : 'rounded-tl-md',
-                        mine ? (last ? '' : 'rounded-br-md') : last ? '' : 'rounded-bl-md',
-                      ].join(' ')}
-                    >
-                      {m.mediaId && m.type === 'image' ? (
-                        <ChatImage token={token} mediaId={m.mediaId} onOpen={setLightbox} />
-                      ) : (
-                        m.hasMedia && !m.text && <p className="italic opacity-75">[{m.type}]</p>
-                      )}
-                      {m.text && <p className="whitespace-pre-wrap break-words">{m.text}</p>}
-                      {last && (
-                        <div
-                          className={`mt-1 select-none text-right text-[10.5px] ${mine ? 'text-white/70' : 'text-muted'}`}
+            {loadingOlder && (
+              <p className="pb-3 text-center text-[11.5px] text-[var(--wa-chip-text)]">
+                Loading earlier messages…
+              </p>
+            )}
+
+            <ul className="flex flex-col">
+              {messages.map((m, i) => {
+                const prev = messages[i - 1];
+                const next = messages[i + 1];
+                const mine = m.from === 'me';
+                const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
+                const first = newDay || startsNewGroup(m, prev);
+                const last =
+                  !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
+                const isImage = Boolean(m.mediaId) && m.type === 'image';
+                const stamp = (
+                  <>
+                    {formatTime(m.createdAt)}
+                    {mine && <MessageTicks pending={m.pending} />}
+                  </>
+                );
+
+                return (
+                  <li key={m.id} className="contents">
+                    {newDay && (
+                      <div className="my-3 flex justify-center">
+                        <span className="rounded-md bg-[var(--wa-chip)] px-3 py-[5px] text-[12px] font-medium uppercase tracking-wide text-[var(--wa-chip-text)] shadow-[var(--wa-bubble-shadow)]">
+                          {dayLabel(m.createdAt)}
+                        </span>
+                      </div>
+                    )}
+
+                    <div className={`flex px-1 ${mine ? 'justify-end' : 'justify-start'} ${last ? 'mb-2' : 'mb-[2px]'}`}>
+                      <div
+                        className={[
+                          'relative max-w-[85%] rounded-[7.5px] shadow-[var(--wa-bubble-shadow)] sm:max-w-[65%] md:max-w-[440px]',
+                          isImage ? 'p-[3px]' : 'px-[9px] pb-[7px] pt-[6px]',
+                          mine ? 'bg-[var(--wa-out)]' : 'bg-[var(--wa-in)]',
+                          // Only the opening bubble of a run carries a tail
+                          // and a squared corner — a tail on every bubble is
+                          // the tell of a chat UI copied from a screenshot.
+                          first ? (mine ? 'wa-tail-out rounded-tr-none' : 'wa-tail-in rounded-tl-none') : '',
+                        ].join(' ')}
+                      >
+                        {isImage ? (
+                          <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
+                        ) : (
+                          m.hasMedia &&
+                          !m.text && (
+                            <p className="italic text-[14.2px] opacity-70">[{m.type}]</p>
+                          )
+                        )}
+
+                        {m.text && (
+                          <p className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px]">
+                            {m.text}
+                            {/* An invisible twin of the stamp, inline at the
+                                end of the text, reserves exactly the room the
+                                real one needs. A fixed pixel width has to
+                                guess, and guesses short for "10:45 AM ✓✓" —
+                                which is precisely when the stamp lands on top
+                                of the last word. */}
+                            <span
+                              aria-hidden
+                              className="invisible ml-2 inline-flex select-none items-center gap-[3px] align-bottom text-[11px] leading-none"
+                            >
+                              {stamp}
+                            </span>
+                          </p>
+                        )}
+
+                        <span
+                          className={[
+                            'absolute flex items-center gap-[3px] text-[11px] leading-none',
+                            isImage
+                              ? 'bottom-[9px] right-[10px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]'
+                              : 'bottom-[5px] right-[7px] text-[var(--wa-meta)]',
+                          ].join(' ')}
                         >
-                          {formatTime(m.createdAt)}
-                        </div>
-                      )}
+                          {stamp}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+                  </li>
+                );
+              })}
+            </ul>
 
-        {agentTyping && messages.length > 0 && <TypingBubble />}
-        <div ref={bottomRef} />
+            {agentTyping && <TypingBubble />}
+            <div ref={bottomRef} className="h-1" />
+          </div>
+        </div>
+
+        {/* Jump to the latest message — the round button the messenger
+            floats over the thread once you scroll away from the bottom. */}
+        {!atBottom && (
+          <button
+            type="button"
+            onClick={scrollToBottom}
+            aria-label="Scroll to latest messages"
+            className="absolute bottom-3 right-3 z-10 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--wa-card)] text-[var(--wa-icon)] shadow-[var(--wa-panel-shadow)] transition active:scale-90"
+          >
+            <ChevronDownIcon className="h-5 w-5" />
+          </button>
+        )}
       </div>
 
+      {/* ── Status strips ──────────────────────────────────────── */}
       {uploading > 0 && (
-        <p className="relative z-10 shrink-0 bg-primary/10 px-4 py-2 text-center text-xs font-medium text-primary">
-          Sending {uploading} {uploading === 1 ? 'image' : 'images'}…
+        <p className="z-10 shrink-0 bg-[var(--wa-accent)]/12 px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-accent)]">
+          Sending {uploading} {uploading === 1 ? 'photo' : 'photos'}…
+        </p>
+      )}
+
+      {notice && (
+        <p className="z-10 shrink-0 bg-[var(--wa-notice)] px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-notice-text)]">
+          {notice}
         </p>
       )}
 
       {errorText && (
-        <p className="relative z-10 shrink-0 bg-red-500/10 px-4 py-2 text-center text-xs font-medium text-red-600 dark:text-red-400">
+        <p className="z-10 shrink-0 bg-red-500/12 px-4 py-1.5 text-center text-[12px] font-medium text-red-600">
           {errorText}
         </p>
       )}
 
-      {/* Composer */}
+      {emojiOpen && <EmojiPicker onPick={insertEmoji} />}
+
+      {/* ── Composer ───────────────────────────────────────────── */}
       <form
-        className="relative z-20 flex shrink-0 items-end gap-2 border-t border-border/50 bg-surface/70 px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pt-3 backdrop-blur-xl"
+        className="z-20 flex shrink-0 items-end gap-1.5 bg-[var(--wa-composer)] px-1.5 pb-[calc(0.4rem+env(safe-area-inset-bottom,0px))] pt-1.5"
         onSubmit={(e) => {
           e.preventDefault();
           void handleSend();
@@ -541,62 +734,124 @@ export default function GuestChatWindow({ token }: { token: string }) {
             e.target.value = '';
           }}
         />
+        <input
+          ref={cameraInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          className="hidden"
+          onChange={(e) => {
+            void handleFiles(e.target.files);
+            e.target.value = '';
+          }}
+        />
+
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading > 0}
-          aria-label="Send images"
-          className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full text-muted transition active:scale-90 hover:bg-foreground/5 hover:text-foreground disabled:opacity-35"
+          aria-label="Attach photos"
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)] disabled:opacity-35"
         >
-          <ImagePlus className="h-[20px] w-[20px]" />
+          <PlusIcon className="h-[26px] w-[26px]" />
         </button>
 
-        <textarea
-          value={draft}
-          onChange={(e) => {
-            setDraft(e.target.value);
-            if (e.target.value.trim()) noteTyping();
-            else stopTyping();
-          }}
-          onBlur={stopTyping}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              void handleSend();
-            }
-          }}
-          rows={1}
-          placeholder="Type a message…"
-          aria-label="Message"
-          className="max-h-32 min-h-[46px] flex-1 resize-none rounded-[22px] border border-border/60 bg-background px-4 py-3 text-[15px] outline-none transition focus:border-primary/50 focus:ring-4 focus:ring-primary/10"
-        />
-        <button
-          type="submit"
-          disabled={!draft.trim() || sending}
-          aria-label="Send"
-          className="flex h-[46px] w-[46px] shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-hover text-white shadow-lg shadow-primary/25 transition active:scale-90 disabled:scale-95 disabled:opacity-35 disabled:shadow-none"
-        >
-          <Send className="h-[18px] w-[18px]" />
-        </button>
+        <div className="flex min-w-0 flex-1 items-end rounded-[24px] bg-[var(--wa-input)] px-2 py-1 shadow-[var(--wa-bubble-shadow)]">
+          <textarea
+            ref={inputRef}
+            value={draft}
+            onChange={(e) => {
+              setDraft(e.target.value);
+              if (e.target.value.trim()) noteTyping();
+              else stopTyping();
+              // Grow with the text, up to the messenger's five-ish lines.
+              e.target.style.height = 'auto';
+              e.target.style.height = `${Math.min(e.target.scrollHeight, 120)}px`;
+            }}
+            onBlur={stopTyping}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleSend();
+              }
+            }}
+            rows={1}
+            placeholder="Message"
+            aria-label="Message"
+            className="max-h-[120px] min-h-[34px] flex-1 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-[20px] outline-none placeholder:text-[var(--wa-meta)]"
+          />
+          <button
+            type="button"
+            onClick={() => {
+              setEmojiOpen((v) => !v);
+              // Keeping focus would leave the on-screen keyboard covering
+              // the tray that just opened.
+              if (!emojiOpen) inputRef.current?.blur();
+            }}
+            aria-label={emojiOpen ? 'Close emoji' : 'Open emoji'}
+            aria-pressed={emojiOpen}
+            className={`mb-[3px] flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition active:scale-90 ${
+              emojiOpen ? 'text-[var(--wa-accent)]' : 'text-[var(--wa-icon)]'
+            }`}
+          >
+            <SmileyIcon className="h-[23px] w-[23px]" />
+          </button>
+        </div>
+
+        {!hasDraft && (
+          <button
+            type="button"
+            onClick={() => cameraInputRef.current?.click()}
+            disabled={uploading > 0}
+            aria-label="Take a photo"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)] disabled:opacity-35"
+          >
+            <CameraIcon className="h-[24px] w-[24px]" />
+          </button>
+        )}
+
+        {/* Mic while the box is empty, send once there is something to
+            send — the same swap the messenger does. Voice notes are not
+            something this chat can carry, so the mic says so rather than
+            appearing to record. */}
+        {hasDraft ? (
+          <button
+            type="submit"
+            disabled={sending}
+            aria-label="Send"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--wa-accent)] text-white shadow-[var(--wa-bubble-shadow)] transition active:scale-90 disabled:opacity-50"
+          >
+            <SendIcon className="h-[21px] w-[21px] translate-x-[1px]" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => flash('Voice messages aren’t supported here — send text or a photo instead.')}
+            aria-label="Voice message"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
+          >
+            <MicIcon className="h-[23px] w-[23px]" />
+          </button>
+        )}
       </form>
 
-      {/* Call sheet */}
+      {/* ── Call sheet ─────────────────────────────────────────── */}
       {callActive && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-7 bg-background/95 px-8 text-center backdrop-blur-2xl">
+        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-7 bg-[var(--wa-wall)]/97 px-8 text-center backdrop-blur-2xl">
           <div className="relative">
             {ringing && (
-              <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" aria-hidden />
+              <span className="absolute inset-0 animate-ping rounded-full bg-[var(--wa-accent)]/20" aria-hidden />
             )}
-            <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-gradient-to-br from-primary to-primary-hover text-3xl font-bold text-white shadow-2xl shadow-primary/30">
-              {initials}
+            <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-[var(--wa-accent)]/18 text-3xl font-semibold text-[var(--wa-accent)]">
+              {initials || <PersonIcon className="h-14 w-14 opacity-70" />}
             </div>
           </div>
 
           <div>
-            <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
-            <p className="mt-1.5 text-sm text-muted">
+            <h2 className="text-xl font-medium tracking-tight">{title}</h2>
+            <p className="mt-1.5 text-sm text-[var(--wa-meta)]">
               {call.phase === 'calling' && 'Ringing…'}
-              {call.phase === 'incoming' && 'Incoming call'}
+              {call.phase === 'incoming' && 'Incoming voice call'}
               {call.phase === 'connecting' && 'Connecting…'}
               {call.phase === 'active' && call.connectedAt && <CallDuration since={call.connectedAt} />}
               {(call.phase === 'ended' || call.phase === 'failed') && call.message}
@@ -617,7 +872,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 type="button"
                 onClick={() => void call.acceptCall()}
                 aria-label="Accept"
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-green-500 text-white shadow-lg shadow-green-500/30 transition active:scale-90"
+                className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--wa-accent)] text-white shadow-lg transition active:scale-90"
               >
                 <Phone className="h-6 w-6" />
               </button>
@@ -626,7 +881,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
             <button
               type="button"
               onClick={call.dismiss}
-              className="rounded-full bg-foreground/10 px-7 py-3 text-sm font-semibold transition active:scale-95"
+              className="rounded-full bg-[var(--wa-card)] px-7 py-3 text-sm font-semibold shadow-[var(--wa-panel-shadow)] transition active:scale-95"
             >
               Close
             </button>
@@ -637,7 +892,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 onClick={call.toggleMute}
                 aria-label={call.muted ? 'Unmute' : 'Mute'}
                 className={`flex h-14 w-14 items-center justify-center rounded-full transition active:scale-90 ${
-                  call.muted ? 'bg-foreground text-background' : 'bg-foreground/10'
+                  call.muted ? 'bg-[var(--wa-text)] text-[var(--wa-wall)]' : 'bg-[var(--wa-card)] shadow-[var(--wa-panel-shadow)]'
                 }`}
               >
                 {call.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
@@ -659,7 +914,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
           holds, so opening a picture costs no second download. */}
       {lightbox && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4"
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/92 p-4"
           onClick={() => setLightbox(null)}
           role="dialog"
           aria-modal="true"
@@ -671,7 +926,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
             aria-label="Close image"
             className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white"
           >
-            <X className="h-5 w-5" />
+            <CloseIcon className="h-5 w-5" />
           </button>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={lightbox} alt="Shared image" className="max-h-full max-w-full object-contain" />
@@ -718,14 +973,14 @@ function ChatImage({ token, mediaId, onOpen }: { token: string; mediaId: string;
 
   if (failed) {
     return (
-      <div className="flex h-40 w-56 items-center justify-center rounded-xl bg-foreground/5 text-xs text-muted">
+      <div className="flex h-40 w-56 items-center justify-center rounded-[6px] bg-black/5 text-xs text-[var(--wa-meta)]">
         Image unavailable
       </div>
     );
   }
 
   if (!url) {
-    return <div className="h-40 w-56 animate-pulse rounded-xl bg-foreground/10" />;
+    return <div className="h-52 w-56 animate-pulse rounded-[6px] bg-black/10" />;
   }
 
   return (
@@ -734,23 +989,7 @@ function ChatImage({ token, mediaId, onOpen }: { token: string; mediaId: string;
       src={url}
       alt="Shared image"
       onClick={() => onOpen(url)}
-      className="max-h-72 w-auto max-w-full cursor-zoom-in rounded-xl object-cover"
+      className="max-h-[330px] w-auto max-w-full cursor-zoom-in rounded-[6px] object-cover"
     />
-  );
-}
-
-/**
- * Two soft colour washes behind everything.
- *
- * Fixed and pointer-events-none so it never intercepts a tap or scrolls
- * with the transcript, and built from the theme's own primary so it
- * follows light and dark without a second palette to keep in step.
- */
-function Backdrop() {
-  return (
-    <div className="pointer-events-none fixed inset-0 z-0 overflow-hidden" aria-hidden>
-      <div className="absolute -left-24 -top-24 h-72 w-72 rounded-full bg-primary/12 blur-3xl" />
-      <div className="absolute -bottom-32 -right-20 h-80 w-80 rounded-full bg-primary/8 blur-3xl" />
-    </div>
   );
 }

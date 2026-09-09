@@ -394,3 +394,165 @@ html.dark .glass-liquid {
 ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--muted) 50%, transparent);
 }
+
+/* ── Guest chat window (/c/[token]) ──────────────────────────────────────
+ *
+ * A deliberately self-contained palette. The rest of this app is indigo and
+ * glass; the customer-facing window has to feel like the messenger they were
+ * just in, so it opts out of the theme tokens above entirely and defines its
+ * own on `.wa`. Nothing outside that class is affected, and the two palettes
+ * cannot drift into each other.
+ *
+ * Light/dark still follows next-themes' `html.dark`, so a customer whose
+ * phone is in dark mode gets the dark window.
+ */
+.wa {
+  /* The messenger's own stack, not the app's display face. Sora and
+   * Fraunces are branding faces for a marketing surface; a chat window
+   * reads as native only in whatever the device itself uses. The emoji
+   * families sit at the end as fallbacks rather than being forced onto
+   * message text — forcing them means a device without any of them falls
+   * through to generic sans-serif, whose metrics stretch word gaps. */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
+  --wa-header: #f7f5f3;
+  --wa-header-text: #111b21;
+  --wa-header-sub: #667781;
+  --wa-wall: #efe7de;
+  --wa-in: #ffffff;
+  --wa-out: #d9fdd3;
+  --wa-text: #111b21;
+  --wa-meta: #667781;
+  --wa-tick: #8696a0;
+  --wa-tick-read: #53bdeb;
+  --wa-chip: #ffffff;
+  --wa-chip-text: #54656f;
+  --wa-notice: #fff3c5;
+  --wa-notice-text: #5b5442;
+  --wa-composer: #f7f5f3;
+  --wa-input: #ffffff;
+  --wa-icon: #54656f;
+  --wa-accent: #00a884;
+  --wa-card: #ffffff;
+  --wa-card-sub: #667781;
+  --wa-divider: rgba(17, 27, 33, 0.09);
+  --wa-hover: rgba(11, 20, 26, 0.05);
+  --wa-bubble-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  --wa-panel-shadow: 0 2px 5px rgba(11, 20, 26, 0.16);
+}
+
+html.dark .wa {
+  --wa-header: #202c33;
+  --wa-header-text: #e9edef;
+  --wa-header-sub: #8696a0;
+  --wa-wall: #0b141a;
+  --wa-in: #202c33;
+  --wa-out: #005c4b;
+  --wa-text: #e9edef;
+  --wa-meta: rgba(233, 237, 239, 0.6);
+  --wa-tick: #8696a0;
+  --wa-tick-read: #53bdeb;
+  --wa-chip: #182229;
+  --wa-chip-text: #8696a0;
+  --wa-notice: #182634;
+  --wa-notice-text: #ffd279;
+  --wa-composer: #111b21;
+  --wa-input: #2a3942;
+  --wa-icon: #8696a0;
+  --wa-accent: #00a884;
+  --wa-card: #202c33;
+  --wa-card-sub: #8696a0;
+  --wa-divider: rgba(233, 237, 239, 0.11);
+  --wa-hover: rgba(233, 237, 239, 0.07);
+  --wa-bubble-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.38);
+  --wa-panel-shadow: 0 2px 5px rgba(11, 20, 26, 0.4);
+}
+
+/* The app sets a display face on headings and the browser gives form
+ * controls a font of their own; both would put a second typeface inside a
+ * window whose whole job is to look like one native surface. */
+.wa h1,
+.wa h2,
+.wa h3,
+.wa h4,
+.wa p,
+.wa span,
+.wa li,
+.wa button,
+.wa textarea,
+.wa input {
+  font-family: inherit;
+}
+
+/* The wallpaper sits on the frame, not on the scroller: in the real app it
+ * stays put while the thread moves over it. Painting it inside the scroll
+ * container would make it slide with the messages and tile to the full
+ * transcript height. */
+.wa-wall {
+  background-color: var(--wa-wall);
+}
+
+.wa-wall::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/wa-pattern.svg");
+  background-repeat: repeat;
+  background-size: 280px 280px;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+/* The doodles are drawn dark; inverting is how they become the lighter-than-
+ * background marks the dark theme needs, without a second asset to maintain. */
+html.dark .wa-wall::before {
+  filter: invert(1);
+  opacity: 0.05;
+}
+
+/* The little triangle where a bubble meets its side of the screen. Only the
+ * first bubble of a run gets one — a whole group of tails is the giveaway
+ * that a chat UI was rebuilt from a screenshot. */
+.wa-tail-in::before,
+.wa-tail-out::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+.wa-tail-in::before {
+  left: -8px;
+  border-width: 0 8px 10px 0;
+  border-color: transparent var(--wa-in) transparent transparent;
+}
+
+.wa-tail-out::before {
+  right: -8px;
+  border-width: 0 0 10px 8px;
+  border-color: transparent transparent transparent var(--wa-out);
+}
+
+/* Thin, dim, and out of the way — the default desktop scrollbar is far too
+ * loud against a wallpaper. */
+.wa-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(134, 150, 160, 0.45) transparent;
+}
+
+.wa-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.wa-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(134, 150, 160, 0.45);
+  border-radius: 3px;
+}
+
+.wa-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
