@@ -1216,12 +1216,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
  * across the whole width.
  */
 function LiveWaveform({ levels, paused }: { levels: number[]; paused: boolean }) {
-  const SLOTS = 44;
+  const SLOTS = 40;
   const padded = [...new Array(Math.max(0, SLOTS - levels.length)).fill(0), ...levels.slice(-SLOTS)];
 
   return (
     <div
-      className={`flex h-8 flex-1 items-center justify-end gap-[2px] transition-opacity ${
+      className={`flex h-8 flex-1 items-center justify-end gap-[3px] overflow-hidden transition-opacity ${
         paused ? 'opacity-40' : ''
       }`}
       aria-hidden
@@ -1229,10 +1229,19 @@ function LiveWaveform({ levels, paused }: { levels: number[]; paused: boolean })
       {padded.map((level, i) => (
         <span
           key={i}
-          className="w-[3px] shrink-0 rounded-full bg-[var(--wa-icon)] transition-[height] duration-75"
-          // A floor of two pixels keeps silence as a visible dotted line
-          // rather than a gap, which is what the original shows too.
-          style={{ height: `${Math.max(2, Math.round(level * 28))}px` }}
+          // Wider bars with a rounded cap, because a hairline reads as a
+          // dotted rule rather than as sound. Uniform colour, like the
+          // original — a fade across the row looked like a scroll hint
+          // rather than like a level meter.
+          className="w-[3.5px] shrink-0 rounded-full bg-[var(--wa-icon)]"
+          style={{
+            // A floor of three pixels keeps silence as a visible line
+            // rather than a gap.
+            height: `${Math.max(3, Math.round(level * 30))}px`,
+            // Long enough to smooth the step between samples, short enough
+            // that the bar has finished moving before the next one lands.
+            transition: 'height 90ms linear',
+          }}
         />
       ))}
     </div>

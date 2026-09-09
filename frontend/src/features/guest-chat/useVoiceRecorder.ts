@@ -37,9 +37,19 @@ export function canRecordAudio(): boolean {
 }
 
 /** How many amplitude samples the live waveform keeps on screen. */
-const WAVEFORM_BARS = 44;
-/** Roughly fourteen samples a second — fast enough to look live, slow enough not to thrash React. */
-const SAMPLE_INTERVAL_MS = 70;
+const WAVEFORM_BARS = 40;
+/** Roughly twenty samples a second — fast enough to read as live speech. */
+const SAMPLE_INTERVAL_MS = 50;
+/**
+ * The quietest peak the auto-gain will normalise against.
+ *
+ * Without a floor, a silent room would be scaled up until its own noise
+ * filled the bar and the waveform danced at nothing. With it, silence
+ * stays flat and only actual sound lifts the bars.
+ */
+const MIN_PEAK = 0.045;
+/** How fast the running peak forgets a loud moment, per sample. */
+const PEAK_DECAY = 0.94;
 
 export interface VoiceRecording {
   blob: Blob;
@@ -71,6 +81,8 @@ export function useVoiceRecorder() {
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const sampleRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  /** Running loudest-recent sample, for the auto-gain — see MIN_PEAK. */
+  const peakRef = useRef(MIN_PEAK);
   /** Set when the customer cancels, so the stop handler knows to discard. */
   const discardRef = useRef(false);
 
@@ -117,17 +129,31 @@ export function useVoiceRecorder() {
       context.createMediaStreamSource(stream).connect(analyser);
 
       const samples = new Uint8Array(analyser.frequencyBinCount);
+      peakRef.current = MIN_PEAK;
+
       sampleRef.current = setInterval(() => {
         analyser.getByteTimeDomainData(samples);
-        // RMS around the 128 midpoint of unsigned 8-bit PCM. Scaled so
-        // ordinary speech lands near the top of the bar rather than in the
-        // bottom fifth, where it would look like nothing is happening.
+
+        // RMS around the 128 midpoint of unsigned 8-bit PCM.
         let sum = 0;
         for (const sample of samples) {
           const centred = (sample - 128) / 128;
           sum += centred * centred;
         }
-        const level = Math.min(1, Math.sqrt(sum / samples.length) * 3.2);
+        const rms = Math.sqrt(sum / samples.length);
+
+        // Auto-gain against the loudest recent sample, because raw RMS is
+        // hopeless as a picture: ordinary speech into a laptop microphone
+        // sits around 0.02–0.06, so any fixed multiplier either flattens a
+        // quiet voice into a dotted line or clips a loud one into a solid
+        // block. Normalising against a decaying peak makes the waveform
+        // read the same whoever is talking and however far from the phone,
+        // and the floor keeps a silent room silent.
+        peakRef.current = Math.max(rms, peakRef.current * PEAK_DECAY, MIN_PEAK);
+        // Loudness is perceived closer to a power curve than a linear one;
+        // without this, everything below a shout hugs the bottom.
+        const level = Math.min(1, Math.pow(rms / peakRef.current, 0.62));
+
         setLevels((prev) => [...prev, level].slice(-WAVEFORM_BARS));
       }, SAMPLE_INTERVAL_MS);
     } catch {
