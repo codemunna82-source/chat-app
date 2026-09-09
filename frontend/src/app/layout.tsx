@@ -7,6 +7,17 @@ const sora = Sora({ subsets: ["latin"], display: "swap", variable: "--font-sans"
 const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-display" });
 const apiHost = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace(/\/api$/, '');
 const socketHost = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
+/**
+ * The VOXO backend behind /c/<token>.
+ *
+ * A different host from the two above — the customer chat window talks to
+ * the inbox backend, not this app's own API — and the first thing that
+ * page does on open is fetch its session and messages from it. Warming the
+ * connection in <head> takes the TLS handshake off that critical path,
+ * which is the difference between the thread appearing and a beat of
+ * blank wallpaper on a phone connection.
+ */
+const voxoHost = (process.env.NEXT_PUBLIC_VOXO_API_URL || '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
 
 export const metadata: Metadata = {
   title: "Chat App | Real-Time Messaging",
@@ -50,9 +61,12 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning className="h-full">
       <head>
         <link rel="preconnect" href="https://icon-library.com" crossOrigin="anonymous" />
-        <link rel="preconnect" href="http://localhost:5000" crossOrigin="anonymous" />
+        {/* apiHost and socketHost already fall back to localhost:5000 in
+            development, so a third hardcoded copy of it only added a dead
+            preconnect to every production page. */}
         <link rel="preconnect" href={apiHost} crossOrigin="anonymous" />
         <link rel="preconnect" href={socketHost} crossOrigin="anonymous" />
+        {voxoHost && <link rel="preconnect" href={voxoHost} crossOrigin="anonymous" />}
       </head>
       <body
         className={`${sora.variable} ${fraunces.variable} relative flex h-full min-h-0 flex-col bg-background font-sans text-foreground transition-colors duration-300`}
