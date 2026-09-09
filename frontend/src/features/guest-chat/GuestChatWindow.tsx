@@ -209,7 +209,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const demoReplyRef = useRef(0);
 
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
-  const call = useGuestCall(socket, loadIce);
+  const call = useGuestCall(socket, loadIce, { demo });
   const recorder = useVoiceRecorder();
   /**
    * Whether the microphone button is worth showing at all.
@@ -686,13 +686,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
             icon that opens nothing is worse than an icon that is absent. */}
         <button
           type="button"
-          onClick={() => {
-            if (demo) {
-              flash('Demo chat — calling needs a real link, since there is nobody to ring.');
-              return;
-            }
-            void call.startCall();
-          }}
+          onClick={() => void call.startCall()}
           disabled={callActive || !connected}
           aria-label="Voice call"
           className="mr-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition active:scale-90 disabled:opacity-35"
@@ -1103,76 +1097,77 @@ export default function GuestChatWindow({ token }: { token: string }) {
         ) : null}
       </form>
 
-      {/* ── Call sheet ─────────────────────────────────────────── */}
+      {/* ── Call screen ────────────────────────────────────────────
+          Name and status at the top, avatar in the middle, controls along
+          the bottom — the shape of a phone call rather than of a dialog
+          box, which is what a centred stack of everything reads as. */}
       {callActive && (
-        <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-7 bg-[var(--wa-wall)]/97 px-8 text-center backdrop-blur-2xl">
-          <div className="relative">
-            {ringing && (
-              <span className="absolute inset-0 animate-ping rounded-full bg-[var(--wa-accent)]/20" aria-hidden />
-            )}
-            <div className="relative flex h-28 w-28 items-center justify-center rounded-full bg-[var(--wa-accent)]/18 text-3xl font-semibold text-[var(--wa-accent)]">
-              {initials || <PersonIcon className="h-14 w-14 opacity-70" />}
-            </div>
-          </div>
-
-          <div>
-            <h2 className="text-xl font-medium tracking-tight">{title}</h2>
-            <p className="mt-1.5 text-sm text-[var(--wa-meta)]">
+        <div className="wa-call wa-call-enter fixed inset-0 z-50 flex flex-col items-center justify-between px-8 pb-[calc(3rem+env(safe-area-inset-bottom,0px))] pt-[calc(4rem+env(safe-area-inset-top,0px))] text-center">
+          <div className="flex flex-col items-center gap-1.5">
+            <h2 className="text-[24px] font-normal leading-tight">{title}</h2>
+            <p className="text-[14.5px] text-[var(--call-sub)]" aria-live="polite">
               {call.phase === 'calling' && 'Ringing…'}
               {call.phase === 'incoming' && 'Incoming voice call'}
               {call.phase === 'connecting' && 'Connecting…'}
-              {call.phase === 'active' && call.connectedAt && <CallDuration since={call.connectedAt} />}
+              {call.phase === 'active' &&
+                (call.connectedAt ? <CallDuration since={call.connectedAt} /> : 'Connected')}
               {(call.phase === 'ended' || call.phase === 'failed') && call.message}
+            </p>
+            {/* The same claim the thread makes, in the same words — a call
+                screen that promised more than the chat above it would be
+                the one place a customer could catch us out. */}
+            <p className="mt-1 flex items-center gap-1 text-[12px] text-[var(--call-sub)]">
+              <LockIcon className="h-3 w-3" />
+              Private · encrypted in transit
             </p>
           </div>
 
+          <div className="relative flex items-center justify-center">
+            {ringing && (
+              <>
+                <span className="wa-call-pulse absolute h-[132px] w-[132px] rounded-full bg-white/16" aria-hidden />
+                <span
+                  className="wa-call-pulse absolute h-[132px] w-[132px] rounded-full bg-white/16"
+                  style={{ animationDelay: '1100ms' }}
+                  aria-hidden
+                />
+              </>
+            )}
+            <div className="relative flex h-[132px] w-[132px] items-center justify-center rounded-full bg-[var(--wa-accent)]/25 text-4xl font-semibold text-[var(--call-text)]">
+              {initials || <PersonIcon className="h-16 w-16 opacity-70" />}
+            </div>
+          </div>
+
           {call.phase === 'incoming' ? (
-            <div className="flex items-center gap-10">
-              <button
-                type="button"
-                onClick={call.endCall}
-                aria-label="Decline"
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition active:scale-90"
-              >
-                <PhoneOff className="h-6 w-6" />
-              </button>
-              <button
-                type="button"
-                onClick={() => void call.acceptCall()}
-                aria-label="Accept"
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--wa-accent)] text-white shadow-lg transition active:scale-90"
-              >
-                <Phone className="h-6 w-6" />
-              </button>
+            <div className="flex w-full max-w-[280px] items-start justify-between">
+              <CallAction label="Decline" onClick={call.endCall} tone="decline">
+                <PhoneOff className="h-7 w-7" />
+              </CallAction>
+              <CallAction label="Accept" onClick={() => void call.acceptCall()} tone="accept" bob>
+                <Phone className="h-7 w-7" />
+              </CallAction>
             </div>
           ) : call.phase === 'ended' || call.phase === 'failed' ? (
             <button
               type="button"
               onClick={call.dismiss}
-              className="rounded-full bg-[var(--wa-card)] px-7 py-3 text-sm font-semibold shadow-[var(--wa-panel-shadow)] transition active:scale-95"
+              className="rounded-full bg-[var(--call-surface)] px-8 py-3.5 text-[15px] font-medium text-[var(--call-text)] transition active:scale-95"
             >
               Close
             </button>
           ) : (
-            <div className="flex items-center gap-10">
-              <button
-                type="button"
+            <div className="flex w-full max-w-[280px] items-start justify-center gap-12">
+              <CallAction
+                label={call.muted ? 'Unmute' : 'Mute'}
                 onClick={call.toggleMute}
-                aria-label={call.muted ? 'Unmute' : 'Mute'}
-                className={`flex h-14 w-14 items-center justify-center rounded-full transition active:scale-90 ${
-                  call.muted ? 'bg-[var(--wa-text)] text-[var(--wa-wall)]' : 'bg-[var(--wa-card)] shadow-[var(--wa-panel-shadow)]'
-                }`}
+                tone={call.muted ? 'on' : 'plain'}
+                caption={call.muted ? 'Unmute' : 'Mute'}
               >
-                {call.muted ? <MicOff className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
-              </button>
-              <button
-                type="button"
-                onClick={call.endCall}
-                aria-label="End call"
-                className="flex h-16 w-16 items-center justify-center rounded-full bg-red-500 text-white shadow-lg shadow-red-500/30 transition active:scale-90"
-              >
-                <PhoneOff className="h-6 w-6" />
-              </button>
+                {call.muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
+              </CallAction>
+              <CallAction label="End call" onClick={call.endCall} tone="decline" caption="End">
+                <PhoneOff className="h-7 w-7" />
+              </CallAction>
             </div>
           )}
         </div>
@@ -1201,6 +1196,56 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * One round control on the call screen, with its name underneath.
+ *
+ * The label is not decoration: an unlabelled row of circles is guesswork
+ * for anyone who has not used this exact screen before, and a call is the
+ * worst moment to be guessing which circle hangs up.
+ */
+function CallAction({
+  children,
+  label,
+  caption,
+  onClick,
+  tone,
+  bob,
+}: {
+  children: React.ReactNode;
+  label: string;
+  caption?: string;
+  onClick: () => void;
+  tone: 'plain' | 'on' | 'accept' | 'decline';
+  bob?: boolean;
+}) {
+  const surface =
+    tone === 'decline'
+      ? 'bg-[#f15c6d] text-white'
+      : tone === 'accept'
+        ? 'bg-[#25d366] text-white'
+        : tone === 'on'
+          ? 'bg-[var(--call-surface-active)] text-[#0b141a]'
+          : 'bg-[var(--call-surface)] text-[var(--call-text)]';
+
+  const big = tone === 'accept' || tone === 'decline';
+
+  return (
+    <div className="flex flex-col items-center gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={label}
+        className={`flex items-center justify-center rounded-full transition active:scale-90 ${surface} ${
+          big ? 'h-[68px] w-[68px]' : 'h-[58px] w-[58px]'
+        } ${bob ? 'wa-call-bob' : ''}`}
+      >
+        {children}
+      </button>
+      {caption && <span className="text-[12.5px] text-[var(--call-sub)]">{caption}</span>}
+    </div>
   );
 }
 

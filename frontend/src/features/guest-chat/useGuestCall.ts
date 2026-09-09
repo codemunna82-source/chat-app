@@ -63,6 +63,13 @@ async function openMicrophone(): Promise<MediaStream> {
 export function useGuestCall(
   socket: Socket | null,
   fetchIceServers: () => Promise<{ iceServers: IceServer[]; hasTurn: boolean }>,
+  /**
+   * Runs a scripted call with no socket, no microphone and no peer
+   * connection, so the call screen can be looked at without a backend or a
+   * second device. Deliberately skips getUserMedia: a permission prompt to
+   * demonstrate an interface is a prompt for nothing.
+   */
+  options?: { demo?: boolean },
 ) {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [message, setMessage] = useState<string | null>(null);
@@ -89,6 +96,11 @@ export function useGuestCall(
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   /** Gives up on a ring nobody answers, rather than spinning forever. */
   const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const demo = options?.demo ?? false;
+  /** Timers driving the scripted demo call, so teardown can cancel them. */
+  const demoTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  /** Alternates the demo between placing a call and receiving one. */
+  const demoIncomingNextRef = useRef(false);
   /** Whether the server has a relay configured — see fetchIceServers. */
   const hasTurnRef = useRef(true);
 
@@ -104,6 +116,11 @@ export function useGuestCall(
     const queued = pendingLocalIceRef.current.splice(0);
     for (const candidate of queued) socket.emit('web:call:ice', { callId, candidate });
   }, [socket]);
+
+  const clearDemoTimers = useCallback(() => {
+    demoTimersRef.current.forEach(clearTimeout);
+    demoTimersRef.current = [];
+  }, []);
 
   const teardown = useCallback(() => {
     // Tracks first: that releases the microphone even if closing the
@@ -202,7 +219,36 @@ export function useGuestCall(
 
   /** The customer pressing Call. */
   const startCall = useCallback(async () => {
-    if (!socket || phase !== 'idle') return;
+    if (phase !== 'idle') return;
+
+    if (demo) {
+      setMessage(null);
+      setMuted(false);
+      setConnectedAt(null);
+
+      // Alternates so both screens can be seen: one tap places a call, the
+      // next receives one. The incoming screen is the distinctive half —
+      // decline and accept rather than mute and hang up — and there is no
+      // other way to reach it without a second device.
+      if (demoIncomingNextRef.current) {
+        demoIncomingNextRef.current = false;
+        setPhase('incoming');
+        return;
+      }
+      demoIncomingNextRef.current = true;
+
+      setPhase('calling');
+      demoTimersRef.current.push(setTimeout(() => setPhase('connecting'), 3200));
+      demoTimersRef.current.push(
+        setTimeout(() => {
+          setPhase('active');
+          setConnectedAt(Date.now());
+        }, 4600),
+      );
+      return;
+    }
+
+    if (!socket) return;
     setMessage(null);
     setPhase('calling');
 
@@ -247,10 +293,21 @@ export function useGuestCall(
           : 'Could not start the call.',
       );
     }
-  }, [socket, phase, createPeer, teardown, flushLocalIce]);
+  }, [socket, phase, createPeer, teardown, flushLocalIce, demo, clearDemoTimers]);
 
   /** The customer accepting a call the agent placed. */
   const acceptCall = useCallback(async () => {
+    if (demo) {
+      setPhase('connecting');
+      demoTimersRef.current.push(
+        setTimeout(() => {
+          setPhase('active');
+          setConnectedAt(Date.now());
+        }, 1200),
+      );
+      return;
+    }
+
     const offer = pendingOfferRef.current;
     if (!socket || phase !== 'incoming' || !offer || !callIdRef.current) return;
     setPhase('connecting');
@@ -280,19 +337,28 @@ export function useGuestCall(
       );
       if (callId) socket.emit('web:call:end', { callId });
     }
-  }, [socket, phase, createPeer, drainPendingIce, teardown, flushLocalIce]);
+  }, [socket, phase, createPeer, drainPendingIce, teardown, flushLocalIce, demo]);
 
   const endCall = useCallback(() => {
+    if (demo) {
+      clearDemoTimers();
+      setPhase('ended');
+      setMessage('Call ended');
+      return;
+    }
     const callId = callIdRef.current;
     teardown();
     setPhase('idle');
     setConnectedAt(null);
     setMessage(null);
     if (callId && socket) socket.emit('web:call:end', { callId });
-  }, [socket, teardown]);
+  }, [socket, teardown, demo, clearDemoTimers]);
 
   const toggleMute = useCallback(() => {
     setMuted((prev) => {
+      // In the demo there are no tracks to disable — the state is the
+      // whole behaviour, which is what the screen is showing.
+
       const next = !prev;
       localStreamRef.current?.getAudioTracks().forEach((t) => {
         t.enabled = !next;
@@ -302,10 +368,13 @@ export function useGuestCall(
   }, []);
 
   const dismiss = useCallback(() => {
+    clearDemoTimers();
     setPhase('idle');
     setMessage(null);
     setConnectedAt(null);
-  }, []);
+  }, [clearDemoTimers]);
+
+  useEffect(() => clearDemoTimers, [clearDemoTimers]);
 
   // ---- signalling -----------------------------------------------------
   useEffect(() => {
