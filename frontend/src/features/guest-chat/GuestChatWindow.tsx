@@ -737,42 +737,38 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 )}
               </p>
 
-              {/* Meta's statement, or nothing. The badge above appears only
-                  when the Graph API reports the display name APPROVED, and
-                  the line below says who did the verifying — a badge whose
-                  source is unnamed is just decoration. */}
-              {session?.verifiedByWhatsApp ? (
-                <p className="mt-1 text-[12.5px] font-medium leading-[17px] text-[var(--wa-accent)]">
-                  Business name verified by WhatsApp
-                </p>
-              ) : (
-                <p className="mt-1 text-[12.5px] leading-[17px] text-[var(--wa-card-sub)]">
-                  WhatsApp Business account
-                </p>
-              )}
-
               {session?.businessPhone && (
-                <p className="mt-0.5 text-[13px] text-[var(--wa-card-sub)]">{session.businessPhone}</p>
+                <p className="mt-1 text-[13px] text-[var(--wa-card-sub)]">{session.businessPhone}</p>
               )}
 
-              <div className="mt-3 space-y-1.5 border-t border-[var(--wa-divider)] pt-3 text-left">
-                <TrustLine>
-                  This chat opened from a private link {title} sent you on WhatsApp. Only you and
-                  they can read it.
-                </TrustLine>
-                {session?.contactName && (
-                  <TrustLine>
-                    You are chatting as <span className="font-medium">{session.contactName}</span>.
-                  </TrustLine>
-                )}
-                {/* The one piece of advice worth more to a customer than any
-                    badge: no legitimate business needs their code. Saying so
-                    is protection they can act on, rather than a claim they
-                    are asked to take on faith. */}
-                <TrustLine warn>
-                  Never share an OTP, PIN, password or card number here — nobody from {title} will
-                  ask for one.
-                </TrustLine>
+              {/* One line, and every clause in it is something this window
+                  can actually stand behind.
+                  "Verified business" is shown only where Meta reports the
+                  display name APPROVED — it is Meta's word, not ours, and it
+                  disappears when Meta has not given it.
+                  "No ads or spam" is a fact about the architecture rather
+                  than a promise about conduct: a link token stands for
+                  exactly one conversation with one business, so nobody else
+                  can reach the customer through this window at all. */}
+              <div className="mt-3 flex items-start justify-center gap-1.5 border-t border-[var(--wa-divider)] pt-3">
+                <span className="mt-[2px] shrink-0 text-[var(--wa-accent)]" aria-hidden>
+                  <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+                    <path d="M8 .9 2 3.4v4.2c0 3.5 2.6 6.4 6 7.5 3.4-1.1 6-4 6-7.5V3.4zm-.9 10.2L4.4 8.4l1.2-1.2 1.5 1.5 3.3-3.3 1.2 1.2z" />
+                  </svg>
+                </span>
+                <p className="text-[12.5px] leading-[17px] text-[var(--wa-card-sub)]">
+                  {session?.verifiedByWhatsApp ? (
+                    <>
+                      <span className="font-medium text-[var(--wa-accent)]">Verified business</span> ·
+                      your chat here is private and secure. No ads or spam.
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-medium">WhatsApp Business account</span> · your chat here
+                      is private and secure. No ads or spam.
+                    </>
+                  )}
+                </p>
               </div>
             </div>
 
@@ -1205,29 +1201,6 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
       )}
     </main>
-  );
-}
-
-/** One line of the card's trust panel: a small mark, then the sentence. */
-function TrustLine({ children, warn }: { children: React.ReactNode; warn?: boolean }) {
-  return (
-    <p className="flex items-start gap-1.5 text-[12px] leading-[17px] text-[var(--wa-card-sub)]">
-      <span
-        className={`mt-[3px] shrink-0 ${warn ? 'text-[var(--wa-notice-text)]' : 'text-[var(--wa-accent)]'}`}
-        aria-hidden
-      >
-        {warn ? (
-          <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor">
-            <path d="M8 1.2 15.2 14H.8zM7.2 6v4h1.6V6zm0 5.2v1.6h1.6v-1.6z" />
-          </svg>
-        ) : (
-          <svg viewBox="0 0 16 16" className="h-3 w-3" fill="currentColor">
-            <path d="M8 .8a7.2 7.2 0 1 0 0 14.4A7.2 7.2 0 0 0 8 .8zm-1 10.6L3.6 8l1.2-1.2L7 9l4.2-4.2L12.4 6z" />
-          </svg>
-        )}
-      </span>
-      <span>{children}</span>
-    </p>
   );
 }
 
