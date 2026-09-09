@@ -116,7 +116,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [agentTyping, setAgentTyping] = useState(false);
   const [uploading, setUploading] = useState(0);
   const [lightbox, setLightbox] = useState<string | null>(null);
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const transcriptRef = useRef<HTMLDivElement | null>(null);
 
   const bottomRef = useRef<HTMLDivElement | null>(null);
   /** Clears the indicator if the other side stops typing without saying so — a
@@ -141,7 +144,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
         ]);
         if (cancelled) return;
         setSession(loadedSession);
-        setMessages(loadedMessages);
+        setMessages(loadedMessages.items);
+        setOlderCursor(loadedMessages.nextCursor);
         setPhase('ready');
         markRead(token);
       } catch (err) {
@@ -211,8 +215,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
   // ---- keep the newest message in view ------------------------------
   useEffect(() => {
+    // Not while older messages are being spliced in above — that is a
+    // length change too, and jumping to the bottom is the opposite of
+    // what the customer just asked for.
+    if (loadingOlder) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages.length]);
+  }, [messages.length, loadingOlder]);
 
   const stopTyping = useCallback(() => {
     if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
@@ -241,6 +249,36 @@ export default function GuestChatWindow({ token }: { token: string }) {
     if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
     if (typingClearRef.current) clearTimeout(typingClearRef.current);
   }, []);
+
+  /**
+   * The page before the one at the top.
+   *
+   * Scroll position is restored by height difference rather than left to
+   * the browser: prepending content pushes everything down, and the
+   * customer would find themselves somewhere they never scrolled to.
+   */
+  const loadOlder = useCallback(async () => {
+    if (!olderCursor || loadingOlder) return;
+    const container = transcriptRef.current;
+    const heightBefore = container?.scrollHeight ?? 0;
+
+    setLoadingOlder(true);
+    try {
+      const page = await fetchMessages(token, olderCursor);
+      setMessages((prev) => [...page.items, ...prev]);
+      setOlderCursor(page.nextCursor);
+
+      requestAnimationFrame(() => {
+        if (!container) return;
+        container.scrollTop += container.scrollHeight - heightBefore;
+      });
+    } catch {
+      // Nothing to say: the thread they can see is unaffected, and they
+      // can try again simply by scrolling up once more.
+    } finally {
+      setLoadingOlder(false);
+    }
+  }, [olderCursor, loadingOlder, token]);
 
   const handleSend = useCallback(async () => {
     const text = draft.trim();
@@ -387,7 +425,16 @@ export default function GuestChatWindow({ token }: { token: string }) {
       </header>
 
       {/* Transcript */}
-      <div className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5">
+      <div
+        ref={transcriptRef}
+        onScroll={(e) => {
+          if (e.currentTarget.scrollTop < 80) void loadOlder();
+        }}
+        className="relative z-10 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5"
+      >
+        {loadingOlder && (
+          <p className="pb-3 text-center text-[11px] text-muted">Loading earlier messages…</p>
+        )}
         {messages.length === 0 ? (
           <div className="mt-16 flex flex-col items-center gap-3 text-center">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">

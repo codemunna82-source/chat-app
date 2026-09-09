@@ -73,14 +73,49 @@ async function request<T>(token: string, path: string, init?: RequestInit): Prom
   return body.data;
 }
 
+/** Same as request(), but keeps the envelope's `meta` — where the cursor lives. */
+async function requestWithMeta<T>(
+  token: string,
+  path: string,
+): Promise<{ data: T; meta?: { nextCursor?: string | null } }> {
+  let res: Response;
+  try {
+    res = await fetch(`${apiBaseUrl()}/guest${path}`, {
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    });
+  } catch (err) {
+    throw new GuestNetworkError(err);
+  }
+  if (res.status === 401) throw new GuestLinkInvalidError();
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+    throw new Error(body?.error?.message ?? `Request failed (${res.status})`);
+  }
+  return (await res.json()) as { data: T; meta?: { nextCursor?: string | null } };
+}
+
 export function fetchSession(token: string): Promise<GuestSession> {
   return request<GuestSession>(token, '/session');
 }
 
-/** The API returns newest-first; the transcript reads oldest-first. */
-export async function fetchMessages(token: string): Promise<GuestMessage[]> {
-  const items = await request<GuestMessage[]>(token, '/messages');
-  return [...items].reverse();
+export interface MessagePage {
+  /** Oldest-first, ready to render. */
+  items: GuestMessage[];
+  /** Pass back as `cursor` to fetch the page before this one; null at the start of the thread. */
+  nextCursor: string | null;
+}
+
+/**
+ * One page of the transcript.
+ *
+ * The API returns newest-first because that is the order it pages in; the
+ * transcript reads oldest-first, so each page is reversed on arrival
+ * rather than at every render.
+ */
+export async function fetchMessages(token: string, cursor?: string): Promise<MessagePage> {
+  const query = cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+  const res = await requestWithMeta<GuestMessage[]>(token, `/messages${query}`);
+  return { items: [...res.data].reverse(), nextCursor: res.meta?.nextCursor ?? null };
 }
 
 export function sendMessage(token: string, text: string): Promise<GuestMessage> {
