@@ -170,15 +170,32 @@ export function PlayIcon({ className }: IconProps) {
 /**
  * The verified badge, shown only where Meta has actually said APPROVED.
  *
- * A filled rosette rather than a plain tick, so it reads as a status and
- * not as a delivery receipt — the double tick lives a few pixels away in
- * the same window.
+ * The scalloped edge is ten arcs between valley points rather than a
+ * hand-written star: a polygon of straight segments reads as a spiky blob
+ * at the fifteen pixels this is actually drawn at, which is the only size
+ * that matters. The arc radius is derived from the lobe depth, so every
+ * lobe bulges by the same amount and the outline stays even all the way
+ * round.
+ *
+ * The tick is a stroked polyline, not a filled shape, so it keeps its
+ * weight when the badge is scaled — a filled tick closes up and turns into
+ * a smudge once the badge drops below about fourteen pixels.
  */
 export function VerifiedIcon({ className }: IconProps) {
   return (
-    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
-      <path d="M12 1.6l2.47 1.86 3.08-.2.98 2.93 2.6 1.67-.98 2.94.98 2.94-2.6 1.67-.98 2.93-3.08-.2L12 22.4l-2.47-1.86-3.08.2-.98-2.93-2.6-1.67.98-2.94-.98-2.94 2.6-1.67.98-2.93 3.08.2z" />
-      <path d="M10.9 15.4l-3-3 1.27-1.27 1.73 1.73 4.03-4.03L16.2 10z" fill="#fff" />
+    <svg viewBox="0 0 24 24" className={className} aria-hidden>
+      <path
+        fill="currentColor"
+        d="M14.81 3.35A2.82 2.82 0 0 1 19.36 6.65A2.82 2.82 0 0 1 21.10 12.00A2.82 2.82 0 0 1 19.36 17.35A2.82 2.82 0 0 1 14.81 20.65A2.82 2.82 0 0 1 9.19 20.65A2.82 2.82 0 0 1 4.64 17.35A2.82 2.82 0 0 1 2.90 12.00A2.82 2.82 0 0 1 4.64 6.65A2.82 2.82 0 0 1 9.19 3.35A2.82 2.82 0 0 1 14.81 3.35Z"
+      />
+      <path
+        d="M8.2 12.1 10.9 14.8 15.9 9.6"
+        fill="none"
+        stroke="#fff"
+        strokeWidth={2.1}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   );
 }

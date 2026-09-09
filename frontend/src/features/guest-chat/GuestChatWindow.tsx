@@ -666,7 +666,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
             <span className="truncate">{title}</span>
             {session?.verifiedByWhatsApp && (
               <VerifiedIcon
-                className="h-[15px] w-[15px] shrink-0 text-[#25d366]"
+                className="h-[17px] w-[17px] shrink-0 translate-y-[0.5px] text-[#25d366]"
                 aria-label="Business name verified by WhatsApp"
               />
             )}
@@ -733,7 +733,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
               <p className="flex items-center justify-center gap-1.5 text-[17px] font-medium leading-tight">
                 {title}
                 {session?.verifiedByWhatsApp && (
-                  <VerifiedIcon className="h-[16px] w-[16px] shrink-0 text-[#25d366]" />
+                  <VerifiedIcon className="h-[18px] w-[18px] shrink-0 translate-y-[1px] text-[#25d366]" />
                 )}
               </p>
 
