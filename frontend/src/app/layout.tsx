@@ -18,8 +18,19 @@ const socketHost = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000'
  * blank wallpaper on a phone connection.
  */
 const voxoHost = (process.env.NEXT_PUBLIC_VOXO_API_URL || '').replace(/\/api\/?$/, '').replace(/\/+$/, '');
+/**
+ * Where this build is actually served from.
+ *
+ * Next needs an absolute base to resolve the relative URLs in metadata —
+ * without one it warns at build time and emits social-card URLs relative
+ * to localhost. Read from the environment rather than written in, because
+ * the same source is deployed to a preview URL and a custom domain and
+ * neither should be hardcoded here.
+ */
+const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/+$/, '');
 
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl),
   title: "Chat App | Real-Time Messaging",
   description: "A high-performance real-time chat application built with Next.js and Socket.io.",
   icons: {
@@ -33,7 +44,9 @@ export const metadata: Metadata = {
     title: "Chat App | Real-Time Messaging",
     description: "Connect with friends and family instantly with our secure chat platform.",
     type: "website",
-    url: "https://chatapp-mern.vercel.app", // Adjust if needed
+    // Was a hardcoded domain this app has never been served from, so every
+    // shared link advertised a site that does not exist.
+    url: siteUrl,
     siteName: "Chat App",
   },
   twitter: {
