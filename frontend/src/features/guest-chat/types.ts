@@ -11,6 +11,15 @@ export interface GuestMessage {
   createdAt: string;
 }
 
+/**
+ * A thread row as the window holds it: a stored message, or one the
+ * customer has sent that the server has not acknowledged yet.
+ *
+ * The pending flag lives here rather than in the component so the demo
+ * transcript can be built with the same type the real one uses.
+ */
+export type ThreadMessage = GuestMessage & { pending?: boolean };
+
 export interface GuestSession {
   conversationId: string;
   businessName: string;

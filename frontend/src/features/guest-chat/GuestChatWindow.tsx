@@ -31,18 +31,15 @@ import {
   SmileyIcon,
   TickIcon,
 } from './waIcons';
-import { realtimeToGuestMessage, type GuestMessage, type GuestSession, type RealtimeMessage } from './types';
+import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
+import {
+  realtimeToGuestMessage,
+  type GuestSession,
+  type RealtimeMessage,
+  type ThreadMessage,
+} from './types';
 
 type Phase = 'loading' | 'ready' | 'invalid' | 'error';
-
-/**
- * A message the customer has sent but the server has not acknowledged yet.
- *
- * Kept in the same list as everything else rather than in a parallel array:
- * it has to sort into the thread by time, and a second list would have to
- * be interleaved on every render to do that.
- */
-type ThreadMessage = GuestMessage & { pending?: boolean };
 
 /**
  * Newest last, and never the same message twice.
@@ -182,6 +179,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   /** Counter behind the temporary ids of unacknowledged messages. */
   const draftIdRef = useRef(0);
+  /** See flash(), below — declared here so earlier callbacks can reach it. */
+  const flashRef = useRef<((message: string) => void) | null>(null);
 
   /** Clears the indicator if the other side stops typing without saying so — a
    *  dropped socket or a closed app leaves no stop event behind. */
@@ -190,11 +189,30 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const typingSentRef = useRef(false);
   const typingIdleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  /**
+   * Whether this is the canned window rather than a real conversation.
+   *
+   * Read from the token, so the demo needs no separate route, no separate
+   * component and no build flag — every behaviour below is the real one
+   * with a single guard in front of the network call it would have made.
+   */
+  const demo = isDemoToken(token);
+  /** Which canned reply comes next; a ref so answering does not re-render. */
+  const demoReplyRef = useRef(0);
+
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
   const call = useGuestCall(socket, loadIce);
 
   // ---- initial load -------------------------------------------------
   useEffect(() => {
+    if (demo) {
+      setSession(DEMO_SESSION);
+      setMessages(demoMessages());
+      setOlderCursor(null); // the demo thread is the whole thread
+      setPhase('ready');
+      return;
+    }
+
     let cancelled = false;
 
     (async () => {
@@ -223,11 +241,18 @@ export default function GuestChatWindow({ token }: { token: string }) {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, demo]);
 
   // ---- realtime -----------------------------------------------------
   useEffect(() => {
     if (phase !== 'ready') return;
+    if (demo) {
+      // No socket to open. The header still has to say something, and
+      // "connecting…" forever would misrepresent a window that works.
+      setConnected(true);
+      setAgentOnline(true);
+      return;
+    }
 
     const s = io(socketUrl(), {
       auth: { guestToken: token },
@@ -272,7 +297,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       setAgentOnline(false);
       setAgentTyping(false);
     };
-  }, [phase, token]);
+  }, [phase, token, demo]);
 
   // ---- keep the newest message in view ------------------------------
   useEffect(() => {
@@ -371,6 +396,32 @@ export default function GuestChatWindow({ token }: { token: string }) {
     setMessages((prev) => [...prev, optimistic]);
     stopTyping();
 
+    if (demo) {
+      // The same three beats the real path produces — clock, then tick,
+      // then the other side typing — on timers instead of a socket.
+      window.setTimeout(
+        () => setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false } : m))),
+        600,
+      );
+      window.setTimeout(() => setAgentTyping(true), 1100);
+      window.setTimeout(() => {
+        setAgentTyping(false);
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: `demo-reply-${demoReplyRef.current}`,
+            from: 'business',
+            type: 'text',
+            text: demoReply(demoReplyRef.current++),
+            hasMedia: false,
+            createdAt: new Date().toISOString(),
+          },
+        ]);
+      }, 2600);
+      setSending(false);
+      return;
+    }
+
     try {
       const saved = await sendMessage(token, text);
       setMessages((prev) => {
@@ -391,12 +442,17 @@ export default function GuestChatWindow({ token }: { token: string }) {
     } finally {
       setSending(false);
     }
-  }, [draft, sending, token, stopTyping]);
+  }, [draft, sending, token, stopTyping, demo]);
 
   const handleFiles = useCallback(
     async (fileList: FileList | null) => {
       const files = Array.from(fileList ?? []);
       if (files.length === 0) return;
+
+      if (demo) {
+        flashRef.current?.('Demo chat — photos are not uploaded anywhere. Open a real link to send one.');
+        return;
+      }
 
       setErrorText(null);
       setAtBottom(true);
@@ -418,7 +474,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
         setUploading((n) => Math.max(0, n - files.length));
       }
     },
-    [token],
+    [token, demo],
   );
 
   const insertEmoji = useCallback((emoji: string) => {
@@ -441,8 +497,11 @@ export default function GuestChatWindow({ token }: { token: string }) {
   /** A one-line message that fades itself out — for things with nothing to decide. */
   const flash = useCallback((message: string) => {
     setNotice(message);
-    setTimeout(() => setNotice((current) => (current === message ? null : current)), 3200);
+    setTimeout(() => setNotice((current) => (current === message ? null : current)), 4200);
   }, []);
+  // handleFiles is declared above this and needs it; a ref keeps the two
+  // from having to be ordered around each other.
+  flashRef.current = flash;
 
   const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
   const initials = useMemo(
@@ -537,7 +596,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
             icon that opens nothing is worse than an icon that is absent. */}
         <button
           type="button"
-          onClick={() => void call.startCall()}
+          onClick={() => {
+            if (demo) {
+              flash('Demo chat — calling needs a real link, since there is nobody to ring.');
+              return;
+            }
+            void call.startCall();
+          }}
           disabled={callActive || !connected}
           aria-label="Voice call"
           className="mr-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition active:scale-90 disabled:opacity-35"
@@ -639,7 +704,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         )}
 
                         {m.text && (
-                          <p className="whitespace-pre-wrap break-words text-[14.2px] leading-[19px]">
+                          <p
+                            className={`whitespace-pre-wrap break-words text-[14.2px] leading-[19px] ${
+                              // A captioned image keeps the picture flush to
+                              // the bubble edge but the words must not be.
+                              isImage ? 'px-[6px] pb-[2px] pt-[4px]' : ''
+                            }`}
+                          >
                             {m.text}
                             {/* An invisible twin of the stamp, inline at the
                                 end of the text, reserves exactly the room the
@@ -659,9 +730,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         <span
                           className={[
                             'absolute flex items-center gap-[3px] text-[11px] leading-none',
-                            isImage
+                            // White over the picture only when the picture
+                            // is what is underneath. With a caption the stamp
+                            // sits on the words instead, where white on the
+                            // bubble's own background is unreadable.
+                            isImage && !m.text
                               ? 'bottom-[9px] right-[10px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]'
-                              : 'bottom-[5px] right-[7px] text-[var(--wa-meta)]',
+                              : 'bottom-[5px] right-[9px] text-[var(--wa-meta)]',
                           ].join(' ')}
                         >
                           {stamp}
@@ -945,10 +1020,16 @@ export default function GuestChatWindow({ token }: { token: string }) {
  * every image stays in memory for the life of the tab.
  */
 function ChatImage({ token, mediaId, onOpen }: { token: string; mediaId: string; onOpen: (url: string) => void }) {
-  const [url, setUrl] = useState<string | null>(null);
+  // The demo has no media route behind it, so its images arrive as a src
+  // already usable by the tag — the one branch the canned thread needs
+  // inside otherwise untouched rendering.
+  const direct = mediaId.startsWith('demo:') ? mediaId.slice('demo:'.length) : null;
+  const [url, setUrl] = useState<string | null>(direct);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
+    if (direct) return;
+
     let cancelled = false;
     let created: string | null = null;
 
@@ -969,7 +1050,7 @@ function ChatImage({ token, mediaId, onOpen }: { token: string; mediaId: string;
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [token, mediaId]);
+  }, [token, mediaId, direct]);
 
   if (failed) {
     return (
