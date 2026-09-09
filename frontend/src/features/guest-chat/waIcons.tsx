@@ -166,3 +166,19 @@ export function PlayIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+/**
+ * The verified badge, shown only where Meta has actually said APPROVED.
+ *
+ * A filled rosette rather than a plain tick, so it reads as a status and
+ * not as a delivery receipt — the double tick lives a few pixels away in
+ * the same window.
+ */
+export function VerifiedIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <path d="M12 1.6l2.47 1.86 3.08-.2.98 2.93 2.6 1.67-.98 2.94.98 2.94-2.6 1.67-.98 2.93-3.08-.2L12 22.4l-2.47-1.86-3.08.2-.98-2.93-2.6-1.67.98-2.94-.98-2.94 2.6-1.67.98-2.93 3.08.2z" />
+      <path d="M10.9 15.4l-3-3 1.27-1.27 1.73 1.73 4.03-4.03L16.2 10z" fill="#fff" />
+    </svg>
+  );
+}

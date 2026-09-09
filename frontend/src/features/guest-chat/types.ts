@@ -24,6 +24,17 @@ export interface GuestSession {
   conversationId: string;
   businessName: string;
   contactName?: string;
+  /**
+   * Whether Meta has reviewed and approved this business's display name.
+   *
+   * The badge is shown only when this is true, and it is true only because
+   * Meta says so — the server reads it back from the Graph API and there is
+   * no way for a business to set it for itself. A badge you can switch on
+   * for yourself tells the customer looking at it nothing.
+   */
+  verifiedByWhatsApp?: boolean;
+  /** The business's WhatsApp number, for the customer to check against the thread the link came from. */
+  businessPhone?: string;
 }
 
 /**

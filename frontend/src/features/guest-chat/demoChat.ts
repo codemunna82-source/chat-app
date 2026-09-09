@@ -24,6 +24,11 @@ export const DEMO_SESSION: GuestSession = {
   conversationId: 'demo-conversation',
   businessName: 'RK Enterprises',
   contactName: 'Nitesh Kumar',
+  // The demo shows the badge so it can be looked at. On a real link this
+  // comes from Meta and is false until Meta says otherwise — see
+  // getGuestSessionView on the server, where it is read rather than set.
+  verifiedByWhatsApp: true,
+  businessPhone: '+91 91539 50934',
 };
 
 /**
