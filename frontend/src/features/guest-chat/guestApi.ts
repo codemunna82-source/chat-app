@@ -187,6 +187,26 @@ export async function uploadImages(token: string, files: File[]): Promise<Upload
 }
 
 /**
+ * One voice note, through the same endpoint photos use.
+ *
+ * A Blob has no filename and multipart wants one, so the recording is
+ * wrapped in a File before it goes. The extension is derived from the type
+ * the browser chose rather than fixed: Chrome hands back WebM and Safari
+ * hands back MP4, and labelling one as the other leaves a file whose name
+ * disagrees with its bytes in the business's inbox.
+ */
+export async function uploadVoiceNote(
+  token: string,
+  blob: Blob,
+  mimeType: string,
+): Promise<UploadResult> {
+  const base = mimeType.split(';')[0]!.trim();
+  const extension = base.includes('mp4') ? 'm4a' : base.includes('ogg') ? 'ogg' : 'webm';
+  const file = new File([blob], `voice-${Date.now()}.${extension}`, { type: mimeType });
+  return uploadImages(token, [file]);
+}
+
+/**
  * An image as a blob URL.
  *
  * The bytes need the link token, and an <img src> cannot carry an

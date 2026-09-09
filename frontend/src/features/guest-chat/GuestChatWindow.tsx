@@ -22,16 +22,23 @@ import {
   ChevronDownIcon,
   ClockTick,
   CloseIcon,
+  KeyboardIcon,
   LockIcon,
   MicIcon,
+  PauseIcon,
   PersonIcon,
   PhoneIcon,
+  PlayIcon,
   PlusIcon,
   SendIcon,
   SmileyIcon,
   TickIcon,
+  TrashIcon,
 } from './waIcons';
+import { VoiceBubble } from './VoiceBubble';
+import { canRecordAudio, useVoiceRecorder } from './useVoiceRecorder';
 import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
+import { uploadVoiceNote } from './guestApi';
 import {
   realtimeToGuestMessage,
   type GuestSession,
@@ -202,6 +209,16 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
   const call = useGuestCall(socket, loadIce);
+  const recorder = useVoiceRecorder();
+  /**
+   * Whether the microphone button is worth showing at all.
+   *
+   * Read once, after mount: MediaRecorder does not exist on the server, and
+   * deciding during render would make the first client paint disagree with
+   * the markup it is hydrating.
+   */
+  const [canRecord, setCanRecord] = useState(false);
+  useEffect(() => setCanRecord(canRecordAudio()), []);
 
   // ---- initial load -------------------------------------------------
   useEffect(() => {
@@ -477,6 +494,70 @@ export default function GuestChatWindow({ token }: { token: string }) {
     [token, demo],
   );
 
+  /**
+   * Starts recording, or explains why it cannot.
+   *
+   * The permission prompt is the first thing a customer sees here, so the
+   * tray opens only once the browser has actually granted the microphone —
+   * a bar that appears and then collapses on a refused prompt reads as a
+   * bug rather than as an answer.
+   */
+  const startRecording = useCallback(async () => {
+    setEmojiOpen(false);
+    const started = await recorder.start();
+    if (started) return;
+
+    flashRef.current?.(
+      recorder.error === 'denied'
+        ? 'Microphone blocked. Allow it in your browser’s site settings to send a voice message.'
+        : 'This browser cannot record audio. Try Chrome or Safari.',
+    );
+    recorder.clearError();
+  }, [recorder]);
+
+  const finishRecording = useCallback(async () => {
+    const result = await recorder.stop();
+    if (!result) {
+      // Either they cancelled, or the press was too short to hold speech.
+      return;
+    }
+
+    if (demo) {
+      // Straight into the thread as a playable blob — nothing is uploaded,
+      // which is the whole point of the demo.
+      const url = URL.createObjectURL(result.blob);
+      setAtBottom(true);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `demo-voice-${Date.now()}`,
+          from: 'me',
+          type: 'audio',
+          hasMedia: true,
+          mediaId: `demo:${url}`,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      return;
+    }
+
+    setErrorText(null);
+    setAtBottom(true);
+    setUploading((n) => n + 1);
+    try {
+      const { sent, failed } = await uploadVoiceNote(token, result.blob, result.mimeType);
+      setMessages((prev) => sent.reduce(mergeMessage, prev));
+      if (sent.length === 0) {
+        setErrorText(failed[0]?.message ?? 'Voice message could not be sent.');
+      }
+    } catch (err) {
+      if (err instanceof GuestLinkInvalidError) setPhase('invalid');
+      else setErrorText(err instanceof Error ? err.message : 'Voice message could not be sent.');
+    } finally {
+      setUploading((n) => Math.max(0, n - 1));
+    }
+  }, [recorder, token, demo]);
+
   const insertEmoji = useCallback((emoji: string) => {
     const field = inputRef.current;
     setDraft((prev) => {
@@ -665,6 +746,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 const last =
                   !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
                 const isImage = Boolean(m.mediaId) && m.type === 'image';
+                const isVoice = Boolean(m.mediaId) && m.type === 'audio';
                 const stamp = (
                   <>
                     {formatTime(m.createdAt)}
@@ -686,7 +768,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                       <div
                         className={[
                           'relative max-w-[85%] rounded-[7.5px] shadow-[var(--wa-bubble-shadow)] sm:max-w-[65%] md:max-w-[440px]',
-                          isImage ? 'p-[3px]' : 'px-[9px] pb-[7px] pt-[6px]',
+                          isImage ? 'p-[3px]' : isVoice ? 'px-[7px] pb-[6px] pt-[5px]' : 'px-[9px] pb-[7px] pt-[6px]',
                           mine ? 'bg-[var(--wa-out)]' : 'bg-[var(--wa-in)]',
                           // Only the opening bubble of a run carries a tail
                           // and a squared corner — a tail on every bubble is
@@ -696,6 +778,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
                       >
                         {isImage ? (
                           <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
+                        ) : isVoice ? (
+                          <VoiceBubble token={token} mediaId={m.mediaId!} mine={mine} />
                         ) : (
                           m.hasMedia &&
                           !m.text && (
@@ -730,6 +814,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         <span
                           className={[
                             'absolute flex items-center gap-[3px] text-[11px] leading-none',
+                            isVoice ? 'bottom-[6px] right-[9px]' : '',
                             // White over the picture only when the picture
                             // is what is underneath. With a caption the stamp
                             // sits on the words instead, where white on the
@@ -786,10 +871,60 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </p>
       )}
 
-      {emojiOpen && <EmojiPicker onPick={insertEmoji} />}
+      {emojiOpen && !recorder.recording && <EmojiPicker onPick={insertEmoji} />}
+
+      {/* ── Recording ──────────────────────────────────────────────
+          Replaces the composer outright rather than sitting above it:
+          while a recording is running there is nothing else to do, and a
+          text field left in reach is a field a customer will type into
+          and lose. */}
+      {recorder.recording && (
+        <div className="z-20 shrink-0 bg-[var(--wa-composer)] px-4 pb-[calc(0.6rem+env(safe-area-inset-bottom,0px))] pt-2.5">
+          <div className="mx-auto flex w-full max-w-[560px] items-center gap-3">
+            <span className="w-[46px] shrink-0 text-[15px] tabular-nums text-[var(--wa-text)]">
+              {`${Math.floor(recorder.seconds / 60)}:${String(recorder.seconds % 60).padStart(2, '0')}`}
+            </span>
+            <LiveWaveform levels={recorder.levels} paused={recorder.paused} />
+          </div>
+
+          <div className="mx-auto mt-3 flex w-full max-w-[560px] items-center justify-between">
+            <button
+              type="button"
+              onClick={recorder.cancel}
+              aria-label="Discard recording"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
+            >
+              <TrashIcon className="h-[24px] w-[24px]" />
+            </button>
+
+            <button
+              type="button"
+              onClick={() => (recorder.paused ? recorder.resume() : recorder.pause())}
+              aria-label={recorder.paused ? 'Resume recording' : 'Pause recording'}
+              className="flex h-12 w-12 items-center justify-center rounded-full border-2 border-red-500 text-red-500 transition active:scale-90"
+            >
+              {recorder.paused ? (
+                <PlayIcon className="h-[22px] w-[22px] translate-x-[1px]" />
+              ) : (
+                <PauseIcon className="h-[22px] w-[22px]" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => void finishRecording()}
+              aria-label="Send voice message"
+              className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--wa-accent)] text-white shadow-[var(--wa-bubble-shadow)] transition active:scale-90"
+            >
+              <SendIcon className="h-[22px] w-[22px] translate-x-[1px]" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* ── Composer ───────────────────────────────────────────── */}
       <form
+        hidden={recorder.recording}
         className="z-20 flex shrink-0 items-end gap-1.5 bg-[var(--wa-composer)] px-1.5 pb-[calc(0.4rem+env(safe-area-inset-bottom,0px))] pt-1.5"
         onSubmit={(e) => {
           e.preventDefault();
@@ -855,21 +990,37 @@ export default function GuestChatWindow({ token }: { token: string }) {
             aria-label="Message"
             className="max-h-[120px] min-h-[34px] flex-1 resize-none bg-transparent px-2 py-[7px] text-[15px] leading-[20px] outline-none placeholder:text-[var(--wa-meta)]"
           />
+          {/* The same button turns into the way back. With the tray open a
+              smiley reads as "open emoji", which is what it was doing a
+              moment ago — so there appeared to be no exit but sending, and
+              the keyboard was unreachable. Swapping the glyph is how the
+              original says the tap now returns you to typing. */}
           <button
             type="button"
             onClick={() => {
-              setEmojiOpen((v) => !v);
+              if (emojiOpen) {
+                setEmojiOpen(false);
+                // Bring the keyboard back with the tray, rather than
+                // leaving the customer to tap the field a second time.
+                inputRef.current?.focus();
+                return;
+              }
+              setEmojiOpen(true);
               // Keeping focus would leave the on-screen keyboard covering
               // the tray that just opened.
-              if (!emojiOpen) inputRef.current?.blur();
+              inputRef.current?.blur();
             }}
-            aria-label={emojiOpen ? 'Close emoji' : 'Open emoji'}
+            aria-label={emojiOpen ? 'Back to keyboard' : 'Open emoji'}
             aria-pressed={emojiOpen}
             className={`mb-[3px] flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition active:scale-90 ${
               emojiOpen ? 'text-[var(--wa-accent)]' : 'text-[var(--wa-icon)]'
             }`}
           >
-            <SmileyIcon className="h-[23px] w-[23px]" />
+            {emojiOpen ? (
+              <KeyboardIcon className="h-[24px] w-[24px]" />
+            ) : (
+              <SmileyIcon className="h-[23px] w-[23px]" />
+            )}
           </button>
         </div>
 
@@ -898,16 +1049,16 @@ export default function GuestChatWindow({ token }: { token: string }) {
           >
             <SendIcon className="h-[21px] w-[21px] translate-x-[1px]" />
           </button>
-        ) : (
+        ) : canRecord ? (
           <button
             type="button"
-            onClick={() => flash('Voice messages aren’t supported here — send text or a photo instead.')}
-            aria-label="Voice message"
+            onClick={() => void startRecording()}
+            aria-label="Record a voice message"
             className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
           >
             <MicIcon className="h-[23px] w-[23px]" />
           </button>
-        )}
+        ) : null}
       </form>
 
       {/* ── Call sheet ─────────────────────────────────────────── */}
@@ -1008,6 +1159,41 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
       )}
     </main>
+  );
+}
+
+/**
+ * The bar that moves while a recording is running.
+ *
+ * Fed by real microphone amplitude rather than an animation on a timer:
+ * the one question a recording indicator has to answer is "is it hearing
+ * me", and a bar that dances regardless of the room answers it wrongly.
+ *
+ * It fills from the right and pads the left, so a recording that has just
+ * started grows into the space instead of stretching a handful of samples
+ * across the whole width.
+ */
+function LiveWaveform({ levels, paused }: { levels: number[]; paused: boolean }) {
+  const SLOTS = 44;
+  const padded = [...new Array(Math.max(0, SLOTS - levels.length)).fill(0), ...levels.slice(-SLOTS)];
+
+  return (
+    <div
+      className={`flex h-8 flex-1 items-center justify-end gap-[2px] transition-opacity ${
+        paused ? 'opacity-40' : ''
+      }`}
+      aria-hidden
+    >
+      {padded.map((level, i) => (
+        <span
+          key={i}
+          className="w-[3px] shrink-0 rounded-full bg-[var(--wa-icon)] transition-[height] duration-75"
+          // A floor of two pixels keeps silence as a visible dotted line
+          // rather than a gap, which is what the original shows too.
+          style={{ height: `${Math.max(2, Math.round(level * 28))}px` }}
+        />
+      ))}
+    </div>
   );
 }
 
