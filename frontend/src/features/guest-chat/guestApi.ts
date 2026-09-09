@@ -139,13 +139,27 @@ export function markRead(token: string): void {
  * audio and no error. Behind the link token like every other guest route,
  * because TURN credentials are not something to serve to anyone who asks.
  */
-export function fetchIceServers(
-  token: string,
-): Promise<{ urls: string[]; username?: string; credential?: string }[]> {
-  return request<{ iceServers: { urls: string[]; username?: string; credential?: string }[] }>(
-    token,
-    '/ice',
-  ).then((d) => d.iceServers);
+export interface IceConfig {
+  iceServers: { urls: string[]; username?: string; credential?: string }[];
+  /**
+   * Whether the server has a relay configured.
+   *
+   * Carried through because a call that never connects is otherwise
+   * indistinguishable from one nobody answered — and with no TURN, on a
+   * mobile network, failing to connect is the expected outcome rather than
+   * an accident worth retrying.
+   */
+  hasTurn: boolean;
+}
+
+export function fetchIceServers(token: string): Promise<IceConfig> {
+  return request<IceConfig>(token, '/ice').then((d) => ({
+    iceServers: d.iceServers ?? [],
+    // An older server does not send this. Assuming a relay exists is the
+    // safer default: it keeps the failure message generic rather than
+    // blaming configuration that may be perfectly fine.
+    hasTurn: d.hasTurn !== false,
+  }));
 }
 
 export interface UploadResult {

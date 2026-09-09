@@ -17,6 +17,15 @@ import type { Socket } from 'socket.io-client';
 
 export type CallPhase = 'idle' | 'calling' | 'incoming' | 'connecting' | 'active' | 'ended' | 'failed';
 
+/**
+ * How long to ring before giving up.
+ *
+ * Shorter than the server's RINGING_TTL_MS, so the client is always the
+ * one that ends an unanswered call and the server's sweep stays a
+ * backstop rather than the normal path.
+ */
+const RING_TIMEOUT_MS = 45_000;
+
 interface IceServer {
   urls: string[];
   username?: string;
@@ -51,7 +60,10 @@ async function openMicrophone(): Promise<MediaStream> {
   }
 }
 
-export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promise<IceServer[]>) {
+export function useGuestCall(
+  socket: Socket | null,
+  fetchIceServers: () => Promise<{ iceServers: IceServer[]; hasTurn: boolean }>,
+) {
   const [phase, setPhase] = useState<CallPhase>('idle');
   const [message, setMessage] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
@@ -63,7 +75,35 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
   const pendingOfferRef = useRef<string | null>(null);
   /** Candidates that arrived before setRemoteDescription — adding one then throws. */
   const pendingIceRef = useRef<RTCIceCandidateInit[]>([]);
+  /**
+   * Our own candidates, gathered before the server has told us the call id.
+   *
+   * This queue is why calls connect at all. ICE gathering starts the
+   * instant setLocalDescription resolves and the first candidates arrive
+   * within a millisecond or two — long before the round trip that returns
+   * the id they have to be addressed with. Dropping them, which is what
+   * happened before, threw away the host and reflexive candidates and left
+   * the two ends with nothing to pair on.
+   */
+  const pendingLocalIceRef = useRef<RTCIceCandidateInit[]>([]);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
+  /** Gives up on a ring nobody answers, rather than spinning forever. */
+  const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  /** Whether the server has a relay configured — see fetchIceServers. */
+  const hasTurnRef = useRef(true);
+
+  const clearRingTimer = useCallback(() => {
+    if (ringTimerRef.current) clearTimeout(ringTimerRef.current);
+    ringTimerRef.current = null;
+  }, []);
+
+  /** Sends everything gathered while the call id was still unknown. */
+  const flushLocalIce = useCallback(() => {
+    const callId = callIdRef.current;
+    if (!callId || !socket) return;
+    const queued = pendingLocalIceRef.current.splice(0);
+    for (const candidate of queued) socket.emit('web:call:ice', { callId, candidate });
+  }, [socket]);
 
   const teardown = useCallback(() => {
     // Tracks first: that releases the microphone even if closing the
@@ -80,22 +120,30 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
     callIdRef.current = null;
     pendingOfferRef.current = null;
     pendingIceRef.current = [];
+    pendingLocalIceRef.current = [];
+    if (ringTimerRef.current) clearTimeout(ringTimerRef.current);
+    ringTimerRef.current = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
   }, []);
 
   const createPeer = useCallback(
     async (stream: MediaStream) => {
-      const iceServers = await fetchIceServers();
+      const { iceServers, hasTurn } = await fetchIceServers();
+      hasTurnRef.current = hasTurn;
       const pc = new RTCPeerConnection({ iceServers });
 
       stream.getTracks().forEach((track) => pc.addTrack(track, stream));
 
       pc.onicecandidate = (event) => {
-        if (!event.candidate || !callIdRef.current) return;
-        socket?.emit('web:call:ice', {
-          callId: callIdRef.current,
-          candidate: event.candidate.toJSON(),
-        });
+        if (!event.candidate) return;
+        const candidate = event.candidate.toJSON();
+        // Queued rather than dropped when the id has not come back yet —
+        // see pendingLocalIceRef.
+        if (!callIdRef.current) {
+          pendingLocalIceRef.current.push(candidate);
+          return;
+        }
+        socket?.emit('web:call:ice', { callId: callIdRef.current, candidate });
       };
 
       pc.ontrack = (event) => {
@@ -113,12 +161,21 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
       pc.onconnectionstatechange = () => {
         switch (pc.connectionState) {
           case 'connected':
+            clearRingTimer();
             setPhase('active');
             setConnectedAt((prev) => prev ?? Date.now());
             break;
           case 'failed':
             setPhase('failed');
-            setMessage('The connection dropped.');
+            // Naming the missing relay when there is one missing: without
+            // it this failure is the normal outcome on a mobile network,
+            // not an accident, and "the connection dropped" sends whoever
+            // is testing looking in the wrong place.
+            setMessage(
+              hasTurnRef.current
+                ? 'The connection dropped.'
+                : 'Could not connect. The call relay (TURN) is not configured on the server.',
+            );
             teardown();
             break;
           default:
@@ -129,7 +186,7 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
       pcRef.current = pc;
       return pc;
     },
-    [fetchIceServers, socket, teardown],
+    [fetchIceServers, socket, teardown, clearRingTimer],
   );
 
   const drainPendingIce = useCallback(async (pc: RTCPeerConnection) => {
@@ -168,6 +225,17 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
             return;
           }
           callIdRef.current = res.callId;
+          flushLocalIce();
+
+          // Nobody picked up. Ending it here also closes the row on the
+          // server, which is what keeps the next call from colliding with
+          // this one.
+          ringTimerRef.current = setTimeout(() => {
+            if (callIdRef.current) socket.emit('web:call:end', { callId: callIdRef.current });
+            teardown();
+            setPhase('ended');
+            setMessage('No answer');
+          }, RING_TIMEOUT_MS);
         },
       );
     } catch (err) {
@@ -179,7 +247,7 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
           : 'Could not start the call.',
       );
     }
-  }, [socket, phase, createPeer, teardown]);
+  }, [socket, phase, createPeer, teardown, flushLocalIce]);
 
   /** The customer accepting a call the agent placed. */
   const acceptCall = useCallback(async () => {
@@ -198,6 +266,9 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
       await pc.setLocalDescription(answer);
 
       socket.emit('web:call:answer', { callId: callIdRef.current, sdp: pc.localDescription?.sdp });
+      // The id was known from the ring, so this is only for candidates
+      // gathered between createPeer and here.
+      flushLocalIce();
     } catch (err) {
       const callId = callIdRef.current;
       teardown();
@@ -209,7 +280,7 @@ export function useGuestCall(socket: Socket | null, fetchIceServers: () => Promi
       );
       if (callId) socket.emit('web:call:end', { callId });
     }
-  }, [socket, phase, createPeer, drainPendingIce, teardown]);
+  }, [socket, phase, createPeer, drainPendingIce, teardown, flushLocalIce]);
 
   const endCall = useCallback(() => {
     const callId = callIdRef.current;
