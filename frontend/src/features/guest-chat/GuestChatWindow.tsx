@@ -65,7 +65,24 @@ type Phase = 'loading' | 'ready' | 'invalid' | 'error';
  * in place, so the bubble never jumps or duplicates.
  */
 function mergeMessage(list: ThreadMessage[], incoming: ThreadMessage): ThreadMessage[] {
-  if (list.some((m) => m.id === incoming.id)) return list;
+  const existing = list.findIndex((m) => m.id === incoming.id);
+  if (existing >= 0) {
+    // Already here, but not necessarily as completely. The socket echo and
+    // the POST response are the same message by two routes, and whichever
+    // arrives second used to be discarded whole — so a reply whose echo won
+    // the race lost its quote permanently. Fields the newcomer does not
+    // carry are kept from the copy already on screen.
+    const current = list[existing]!;
+    const merged: ThreadMessage = {
+      ...current,
+      ...incoming,
+      replyTo: incoming.replyTo ?? current.replyTo,
+      reactions: incoming.reactions ?? current.reactions,
+    };
+    const copy = [...list];
+    copy[existing] = merged;
+    return copy;
+  }
 
   if (incoming.from === 'me' && !incoming.hasMedia) {
     const idx = list.findIndex((m) => m.pending && m.text === incoming.text && !m.hasMedia);
@@ -250,6 +267,34 @@ export default function GuestChatWindow({ token }: { token: string }) {
    * been fetched and what can be seen.
    */
   const [renderWindow, setRenderWindow] = useState(RENDER_WINDOW_STEP);
+  /**
+   * The committed message list, readable synchronously.
+   *
+   * Handlers that have to decide something from current state before
+   * updating it cannot use a setState updater for the decision: the
+   * updater runs at the next render, so anything it assigns is still
+   * unset when the handler continues. Assigned during render, which is
+   * exactly when it becomes true.
+   */
+  const messagesRef = useRef<ThreadMessage[]>([]);
+  messagesRef.current = messages;
+  /**
+   * The gesture in progress.
+   *
+   * A ref shared across renders rather than variables closed over inside
+   * the handler factory: that factory runs on every render, so any
+   * re-render between pointerdown and pointerup handed the cancel a fresh,
+   * empty closure — and the hold timer from the old one fired anyway. A
+   * plain tap on a bubble popped the reaction row open 420ms later.
+   */
+  const gestureRef = useRef({
+    timer: null as ReturnType<typeof setTimeout> | null,
+    startX: 0,
+    startY: 0,
+    dragging: false,
+    /** Set when a hold or swipe fired, so the click it produces is swallowed. */
+    acted: false,
+  });
 
   /** See flash(), below — declared here so earlier callbacks can reach it. */
   const flashRef = useRef<((message: string) => void) | null>(null);
@@ -309,34 +354,42 @@ export default function GuestChatWindow({ token }: { token: string }) {
    */
   const bubbleGestures = useCallback(
     (message: ThreadMessage) => {
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      let startX = 0;
-      let startY = 0;
-      let dragging = false;
+      // A message still on its way has only a temporary client id. Sending
+      // that as a reply target or a reaction target asks the server about a
+      // message it has never seen, and the outbox treats the refusal as
+      // permanent and drops what the customer typed.
+      if (message.pending) return {};
 
       const cancelHold = () => {
-        if (timer) clearTimeout(timer);
-        timer = null;
+        const g = gestureRef.current;
+        if (g.timer) clearTimeout(g.timer);
+        g.timer = null;
       };
 
       return {
         onPointerDown: (e: React.PointerEvent) => {
-          startX = e.clientX;
-          startY = e.clientY;
-          dragging = false;
           cancelHold();
-          timer = setTimeout(() => {
-            tapFeedback(14);
-            setReactingTo(message.id);
-          }, 420);
+          gestureRef.current = {
+            timer: setTimeout(() => {
+              gestureRef.current.acted = true;
+              tapFeedback(14);
+              setReactingTo(message.id);
+            }, 420),
+            startX: e.clientX,
+            startY: e.clientY,
+            dragging: false,
+            acted: false,
+          };
         },
         onPointerMove: (e: React.PointerEvent) => {
-          const dx = e.clientX - startX;
-          const dy = e.clientY - startY;
+          const g = gestureRef.current;
+          const dx = e.clientX - g.startX;
+          const dy = e.clientY - g.startY;
           if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelHold();
           // Sideways and clearly not a scroll: the reply gesture.
-          if (!dragging && dx > 56 && Math.abs(dy) < 34) {
-            dragging = true;
+          if (!g.dragging && dx > 56 && Math.abs(dy) < 34) {
+            g.dragging = true;
+            g.acted = true;
             tapFeedback(10);
             setReplyTo(message);
             inputRef.current?.focus();
@@ -345,6 +398,15 @@ export default function GuestChatWindow({ token }: { token: string }) {
         onPointerUp: cancelHold,
         onPointerLeave: cancelHold,
         onPointerCancel: cancelHold,
+        // A hold or a swipe is not also a tap. Without this, long-pressing a
+        // photo opens the reaction row and the lightbox, and swiping a voice
+        // note starts playing it.
+        onClickCapture: (e: React.MouseEvent) => {
+          if (!gestureRef.current.acted) return;
+          gestureRef.current.acted = false;
+          e.stopPropagation();
+          e.preventDefault();
+        },
       };
     },
     [],
@@ -546,12 +608,24 @@ export default function GuestChatWindow({ token }: { token: string }) {
     // scrolled up to read: the jump-to-latest button is there for that.
     if (loadingOlder || !atBottom) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    // Paging stays off until this animation is over — see settledRef.
+  }, [messages.length, loadingOlder, atBottom, agentTyping, emojiOpen]);
+
+  /**
+   * Paging waits for the opening jump to the newest message to finish.
+   *
+   * Its own effect, keyed only on the thread being ready — tied to the
+   * scroll effect it never ran for anyone who scrolled up in the first
+   * second, because that effect returns early once atBottom is false and
+   * its cleanup cancelled the timer. Those customers got a thread that
+   * would never load another page for as long as it stayed open.
+   */
+  useEffect(() => {
+    if (phase !== 'ready') return;
     const settle = setTimeout(() => {
       settledRef.current = true;
     }, 700);
     return () => clearTimeout(settle);
-  }, [messages.length, loadingOlder, atBottom, agentTyping, emojiOpen]);
+  }, [phase]);
 
   const scrollToBottom = useCallback(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
@@ -614,6 +688,23 @@ export default function GuestChatWindow({ token }: { token: string }) {
       setLoadingOlder(false);
     }
   }, [olderCursor, loadingOlder, token]);
+
+  /**
+   * Going further back, one step at a time.
+   *
+   * Never both at once. Growing the window and fetching a page in the same
+   * tick meant the scroll restore in loadOlder measured a height that
+   * changed underneath it, so the thread jumped; and the pull gesture,
+   * which only fetched, appended a page that the window then sliced off —
+   * a pull that visibly did nothing once the thread passed the window size.
+   */
+  const showOlder = useCallback(() => {
+    if (messagesRef.current.length > renderWindow) {
+      setRenderWindow((w) => w + RENDER_WINDOW_STEP);
+      return;
+    }
+    void loadOlder();
+  }, [renderWindow, loadOlder]);
 
   const handleSend = useCallback(async () => {
     const text = draft.trim();
@@ -702,6 +793,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
         return;
       }
 
+      // The quote does not carry to a photo, and leaving the banner up
+      // silently attached it to whatever text was typed next.
+      setReplyTo(null);
       setErrorText(null);
       setAtBottom(true);
       setUploading((n) => n + files.length);
@@ -777,6 +871,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       return;
     }
 
+    setReplyTo(null);
     setErrorText(null);
     setAtBottom(true);
     setUploading((n) => n + 1);
@@ -806,23 +901,27 @@ export default function GuestChatWindow({ token }: { token: string }) {
       setReactingTo(null);
       tapFeedback(12);
 
-      let previous: ThreadMessage['reactions'];
+      // Read before the update, not inside it. A setState updater runs at
+      // the next render, so reading a variable it assigns is reading it
+      // before it has been written — which made every removal POST an add,
+      // and made the rollback wipe the business's reactions along with the
+      // customer's.
+      const target = messagesRef.current.find((m) => m.id === messageId);
+      const previous = target?.reactions;
+      const had = previous?.some((r) => r.mine && r.emoji === emoji) ?? false;
+
       setMessages((prev) =>
         prev.map((m) => {
           if (m.id !== messageId) return m;
-          previous = m.reactions;
           const others = (m.reactions ?? []).filter((r) => !r.mine);
-          const had = (m.reactions ?? []).some((r) => r.mine && r.emoji === emoji);
           return { ...m, reactions: had ? others : [...others, { emoji, mine: true }] };
         }),
       );
 
       if (demo) return;
 
-      const mineNow = emoji;
-      const had = previous?.some((r) => r.mine && r.emoji === emoji) ?? false;
       try {
-        await sendReaction(token, messageId, had ? '' : mineNow);
+        await sendReaction(token, messageId, had ? '' : emoji);
       } catch {
         setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: previous } : m)));
         flashRef.current?.('Could not save that reaction.');
@@ -987,13 +1086,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
           }}
           onScroll={(e) => {
             const el = e.currentTarget;
-            if (settledRef.current && el.scrollTop < 80) {
-              // Show more of what is already here before going back to the
-              // server for more — otherwise scrolling up fetches a page
-              // that cannot be seen because the window still hides it.
-              setRenderWindow((w) => (messages.length > w ? w + RENDER_WINDOW_STEP : w));
-              void loadOlder();
-            }
+            if (settledRef.current && el.scrollTop < 80) showOlder();
             setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
           }}
           /* Pull down at the top to fetch the page before. Scrolling to the
@@ -1015,7 +1108,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
           onTouchEnd={() => {
             if (pullDistance > 44) {
               tapFeedback(10);
-              void loadOlder();
+              showOlder();
             }
             pullStartRef.current = null;
             setPullDistance(0);

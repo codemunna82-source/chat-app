@@ -36,6 +36,25 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/**
+ * Puts one response in the cache, and never throws.
+ *
+ * `Cache.put` rejects outright on a redirected response — which a
+ * navigation very often is, since the host redirects to add or strip a
+ * trailing slash — and an unhandled rejection inside a fetch handler is an
+ * error in the worker's own console for something that was only ever an
+ * optimisation.
+ */
+async function store(request, response) {
+  if (!response.ok || response.redirected || response.type === 'opaque') return;
+  try {
+    const cache = await caches.open(VERSION);
+    await cache.put(request, response.clone());
+  } catch {
+    /* quota, a partial response, a redirect we did not catch — never fatal */
+  }
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (request.method !== 'GET') return;
@@ -56,10 +75,7 @@ self.addEventListener('fetch', (event) => {
         (hit) =>
           hit ??
           fetch(request).then((res) => {
-            if (res.ok) {
-              const copy = res.clone();
-              void caches.open(VERSION).then((cache) => cache.put(request, copy));
-            }
+            event.waitUntil(store(request, res));
             return res;
           }),
       ),
@@ -74,10 +90,11 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((res) => {
-          if (res.ok) {
-            const copy = res.clone();
-            void caches.open(VERSION).then((cache) => cache.put(request, copy));
-          }
+          // waitUntil, so the worker is not killed between returning the
+          // response and finishing the write — which is exactly when a
+          // navigation completes, and is why the offline page could still
+          // be missing after visiting the chat a dozen times.
+          event.waitUntil(store(request, res));
           return res;
         })
         .catch(async () => {
