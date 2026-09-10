@@ -9,6 +9,10 @@ export interface GuestMessage {
   /** Present when there is an attachment — what the media route is asked for. */
   mediaId?: string;
   createdAt: string;
+  /** The message this one answers, already flattened to one line by the server. */
+  replyTo?: { id: string; from: 'me' | 'business'; preview: string };
+  /** Emoji reactions on this message. */
+  reactions?: { emoji: string; mine: boolean }[];
 }
 
 /**

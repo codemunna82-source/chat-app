@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import GuestChatWindow from '@/features/guest-chat/GuestChatWindow';
+import { ServiceWorker } from '@/features/guest-chat/ServiceWorker';
 
 /**
  * A private conversation between one customer and one business, reachable
@@ -52,5 +53,10 @@ export async function generateMetadata({
 
 export default async function GuestChatPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  return <GuestChatWindow token={token} />;
+  return (
+    <>
+      <ServiceWorker />
+      <GuestChatWindow token={token} />
+    </>
+  );
 }

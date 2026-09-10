@@ -118,10 +118,22 @@ export async function fetchMessages(token: string, cursor?: string): Promise<Mes
   return { items: [...res.data].reverse(), nextCursor: res.meta?.nextCursor ?? null };
 }
 
-export function sendMessage(token: string, text: string): Promise<GuestMessage> {
+export function sendMessage(
+  token: string,
+  text: string,
+  replyToMessageId?: string,
+): Promise<GuestMessage> {
   return request<GuestMessage>(token, '/messages', {
     method: 'POST',
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, replyToMessageId }),
+  });
+}
+
+/** An empty emoji removes whatever reaction the customer had. */
+export function sendReaction(token: string, messageId: string, emoji: string): Promise<unknown> {
+  return request(token, '/reactions', {
+    method: 'POST',
+    body: JSON.stringify({ messageId, emoji }),
   });
 }
 
@@ -229,10 +241,23 @@ export async function uploadVoiceNote(
  * bytes are fetched and handed to the tag as an object URL. Callers must
  * revoke it when the element goes away.
  */
-export async function fetchMediaObjectUrl(token: string, mediaId: string): Promise<string> {
+export async function fetchMediaObjectUrl(
+  token: string,
+  mediaId: string,
+  /**
+   * Longest edge to ask the server for.
+   *
+   * A bubble is a few hundred pixels wide; without this it was handed the
+   * full photo out of someone's camera roll. Only the widths the server
+   * allows are worth sending — anything else is ignored there and comes
+   * back full size, which is a wasted download, not an error.
+   */
+  maxWidth?: 480 | 960,
+): Promise<string> {
+  const query = maxWidth ? `?w=${maxWidth}` : '';
   let res: Response;
   try {
-    res = await fetch(`${apiBaseUrl()}/guest/media/${encodeURIComponent(mediaId)}`, {
+    res = await fetch(`${apiBaseUrl()}/guest/media/${encodeURIComponent(mediaId)}${query}`, {
       headers: { Authorization: `Bearer ${token}` },
     });
   } catch (err) {

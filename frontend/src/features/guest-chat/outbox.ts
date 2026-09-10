@@ -19,6 +19,10 @@ export interface OutboxItem {
   id: string;
   text: string;
   createdAt: string;
+  /** The message being answered, so a reply queued offline keeps its quote. */
+  replyToMessageId?: string;
+  /** The quote as it should render while queued — the server sends its own once accepted. */
+  replyPreview?: { id: string; from: 'me' | 'business'; preview: string };
 }
 
 const KEY_PREFIX = 'wa-outbox:';
@@ -68,5 +72,6 @@ export function outboxToMessage(item: OutboxItem): ThreadMessage {
     hasMedia: false,
     createdAt: item.createdAt,
     pending: true,
+    replyTo: item.replyPreview,
   };
 }

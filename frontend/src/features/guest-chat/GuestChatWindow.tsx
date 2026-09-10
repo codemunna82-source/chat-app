@@ -12,6 +12,7 @@ import {
   fetchMediaObjectUrl,
   markRead,
   sendMessage,
+  sendReaction,
   socketUrl,
   uploadImages,
 } from './guestApi';
@@ -112,6 +113,18 @@ function dayLabel(iso: string): string {
   });
 }
 
+/**
+ * How many messages are rendered at once, and how much the window grows by.
+ *
+ * content-visibility already stops off-screen rows being laid out, but
+ * they are still nodes React reconciles on every update. Past a few
+ * hundred that reconciliation is what makes typing feel heavy.
+ */
+const RENDER_WINDOW_STEP = 120;
+
+/** The emoji offered on a long press, in the order the app it copies uses. */
+const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
+
 /** Messages from the same side within a few minutes read as one block, and only the first gets a tail. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
@@ -119,6 +132,14 @@ function startsNewGroup(current: ThreadMessage, previous?: ThreadMessage): boole
   if (!previous) return true;
   if (previous.from !== current.from) return true;
   return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() > GROUP_WINDOW_MS;
+}
+
+/** One line standing in for a message inside a quote — mirrors the server's own rule. */
+function previewOfMessage(m: ThreadMessage): string {
+  if (m.text) return m.text;
+  if (m.type === 'image') return '[photo]';
+  if (m.type === 'audio') return '[voice message]';
+  return `[${m.type}]`;
 }
 
 /** The three-dot bubble, using staggered bounces rather than a keyframe of its own. */
@@ -206,45 +227,30 @@ export default function GuestChatWindow({ token }: { token: string }) {
   /** How far the thread has been dragged past its top, in pixels. */
   const [pullDistance, setPullDistance] = useState(0);
   const pullStartRef = useRef<number | null>(null);
-
   /**
-   * Hold a bubble to copy it.
+   * Whether the opening jump to the newest message has finished.
    *
-   * Pointer events rather than touch: the same handler then works for a
-   * mouse held down on a desktop, and it is the only way to get this on a
-   * bubble whose text is select-none — which it has to be, because
-   * otherwise a long press starts a text selection and the browser's own
-   * handle UI appears instead.
+   * Until it has, the transcript is scrolled at the top and every frame of
+   * that animation looks exactly like the customer scrolling up — which
+   * grew the render window and asked for another page, over and over, so a
+   * four-hundred message thread rendered all four hundred rows on open.
    */
-  const longPressProps = useCallback(
-    (text: string) => {
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const cancel = () => {
-        if (timer) clearTimeout(timer);
-        timer = null;
-      };
-      return {
-        onPointerDown: () => {
-          cancel();
-          timer = setTimeout(() => {
-            void navigator.clipboard
-              ?.writeText(text)
-              .then(() => {
-                tapFeedback(12);
-                flashRef.current?.('Copied');
-              })
-              .catch(() => flashRef.current?.('Could not copy'));
-          }, 480);
-        },
-        onPointerUp: cancel,
-        onPointerLeave: cancel,
-        onPointerCancel: cancel,
-        // A press that turns into a scroll is a scroll, not a copy.
-        onTouchMove: cancel,
-      };
-    },
-    [],
-  );
+  const settledRef = useRef(false);
+  /** The message the composer is currently answering. */
+  const [replyTo, setReplyTo] = useState<ThreadMessage | null>(null);
+  /** Which message has its reaction row open. */
+  const [reactingTo, setReactingTo] = useState<string | null>(null);
+  /**
+   * How many of the newest messages are rendered.
+   *
+   * A thread of a thousand messages does not need a thousand rows in the
+   * document; nothing above the fold has ever been looked at. The window
+   * grows as the customer scrolls up, which is also when loadOlder runs,
+   * so the two move together and there is never a gap between what has
+   * been fetched and what can be seen.
+   */
+  const [renderWindow, setRenderWindow] = useState(RENDER_WINDOW_STEP);
+
   /** See flash(), below — declared here so earlier callbacks can reach it. */
   const flashRef = useRef<((message: string) => void) | null>(null);
 
@@ -266,14 +272,6 @@ export default function GuestChatWindow({ token }: { token: string }) {
   /** Which canned reply comes next; a ref so answering does not re-render. */
   const demoReplyRef = useRef(0);
 
-  // Back closes the layer that is open rather than leaving the chat. Order
-  // matters only in that each hook owns its own history entry; the browser
-  // pops the most recently pushed, which is the innermost layer.
-  const closeLightbox = useCallback(() => setLightbox(null), []);
-  const closeEmoji = useCallback(() => setEmojiOpen(false), []);
-  useDismissOnBack(emojiOpen, closeEmoji);
-  useDismissOnBack(lightbox !== null, closeLightbox);
-
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
   const call = useGuestCall(socket, loadIce, { demo });
   const recorder = useVoiceRecorder();
@@ -286,6 +284,71 @@ export default function GuestChatWindow({ token }: { token: string }) {
    */
   const [canRecord, setCanRecord] = useState(false);
   useEffect(() => setCanRecord(canRecordAudio()), []);
+
+  // Back closes the layer that is open rather than leaving the chat. Order
+  // matters only in that each hook owns its own history entry; the browser
+  // pops the most recently pushed, which is the innermost layer.
+  const closeLightbox = useCallback(() => setLightbox(null), []);
+  const closeEmoji = useCallback(() => setEmojiOpen(false), []);
+  const closeReactions = useCallback(() => setReactingTo(null), []);
+  useDismissOnBack(emojiOpen, closeEmoji);
+  useDismissOnBack(reactingTo !== null, closeReactions);
+  useDismissOnBack(lightbox !== null, closeLightbox);
+
+  /**
+   * The two gestures a bubble answers to.
+   *
+   * Hold opens the reaction row; a sideways drag starts a reply. Both live
+   * in one handler because they share a pointer: a drag has to cancel the
+   * hold, or scrolling the thread with a finger resting on a bubble opens
+   * a reaction row every time.
+   *
+   * Pointer events rather than touch, so a held mouse works too, and the
+   * bubble is select-none — otherwise the hold starts a text selection and
+   * the browser's own handles appear instead of ours.
+   */
+  const bubbleGestures = useCallback(
+    (message: ThreadMessage) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      let startX = 0;
+      let startY = 0;
+      let dragging = false;
+
+      const cancelHold = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
+
+      return {
+        onPointerDown: (e: React.PointerEvent) => {
+          startX = e.clientX;
+          startY = e.clientY;
+          dragging = false;
+          cancelHold();
+          timer = setTimeout(() => {
+            tapFeedback(14);
+            setReactingTo(message.id);
+          }, 420);
+        },
+        onPointerMove: (e: React.PointerEvent) => {
+          const dx = e.clientX - startX;
+          const dy = e.clientY - startY;
+          if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelHold();
+          // Sideways and clearly not a scroll: the reply gesture.
+          if (!dragging && dx > 56 && Math.abs(dy) < 34) {
+            dragging = true;
+            tapFeedback(10);
+            setReplyTo(message);
+            inputRef.current?.focus();
+          }
+        },
+        onPointerUp: cancelHold,
+        onPointerLeave: cancelHold,
+        onPointerCancel: cancelHold,
+      };
+    },
+    [],
+  );
 
   /**
    * Sends whatever is waiting, oldest first, and stops at the first
@@ -307,7 +370,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       while (outboxRef.current.length > 0) {
         const item = outboxRef.current[0]!;
         try {
-          const saved = await sendMessage(token, item.text);
+          const saved = await sendMessage(token, item.text, item.replyToMessageId);
           outboxRef.current = outboxRef.current.slice(1);
           writeOutbox(token, outboxRef.current);
           setQueuedCount(outboxRef.current.length);
@@ -483,6 +546,11 @@ export default function GuestChatWindow({ token }: { token: string }) {
     // scrolled up to read: the jump-to-latest button is there for that.
     if (loadingOlder || !atBottom) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    // Paging stays off until this animation is over — see settledRef.
+    const settle = setTimeout(() => {
+      settledRef.current = true;
+    }, 700);
+    return () => clearTimeout(settle);
   }, [messages.length, loadingOlder, atBottom, agentTyping, emojiOpen]);
 
   const scrollToBottom = useCallback(() => {
@@ -563,8 +631,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
       hasMedia: false,
       createdAt: new Date().toISOString(),
       pending: true,
+      replyTo: replyTo
+        ? { id: replyTo.id, from: replyTo.from, preview: previewOfMessage(replyTo) }
+        : undefined,
     };
 
+    setReplyTo(null);
     setSending(true);
     setDraft('');
     setEmojiOpen(false);
@@ -602,12 +674,23 @@ export default function GuestChatWindow({ token }: { token: string }) {
     // Queued first, sent second — always, not only when offline. The
     // queue is what survives the tab being closed mid-send, and a message
     // that took the direct path would be the one message that did not.
-    outboxRef.current = [...outboxRef.current, { id: tempId, text, createdAt: optimistic.createdAt }];
+    outboxRef.current = [
+      ...outboxRef.current,
+      {
+        id: tempId,
+        text,
+        createdAt: optimistic.createdAt,
+        replyToMessageId: replyTo?.id,
+        replyPreview: replyTo
+          ? { id: replyTo.id, from: replyTo.from, preview: previewOfMessage(replyTo) }
+          : undefined,
+      },
+    ];
     writeOutbox(token, outboxRef.current);
     setQueuedCount(outboxRef.current.length);
     setSending(false);
     void flushOutbox();
-  }, [draft, sending, token, stopTyping, demo, flushOutbox]);
+  }, [draft, sending, token, stopTyping, demo, flushOutbox, replyTo]);
 
   const handleFiles = useCallback(
     async (fileList: FileList | null) => {
@@ -711,6 +794,43 @@ export default function GuestChatWindow({ token }: { token: string }) {
     }
   }, [recorder, token, demo]);
 
+  /**
+   * Toggling a reaction.
+   *
+   * Applied locally before the request, and rolled back if it fails: a
+   * reaction is a one-tap gesture, and a tap that does nothing for a
+   * round trip reads as a tap that missed.
+   */
+  const react = useCallback(
+    async (messageId: string, emoji: string) => {
+      setReactingTo(null);
+      tapFeedback(12);
+
+      let previous: ThreadMessage['reactions'];
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m;
+          previous = m.reactions;
+          const others = (m.reactions ?? []).filter((r) => !r.mine);
+          const had = (m.reactions ?? []).some((r) => r.mine && r.emoji === emoji);
+          return { ...m, reactions: had ? others : [...others, { emoji, mine: true }] };
+        }),
+      );
+
+      if (demo) return;
+
+      const mineNow = emoji;
+      const had = previous?.some((r) => r.mine && r.emoji === emoji) ?? false;
+      try {
+        await sendReaction(token, messageId, had ? '' : mineNow);
+      } catch {
+        setMessages((prev) => prev.map((m) => (m.id === messageId ? { ...m, reactions: previous } : m)));
+        flashRef.current?.('Could not save that reaction.');
+      }
+    },
+    [token, demo],
+  );
+
   const insertEmoji = useCallback((emoji: string) => {
     const field = inputRef.current;
     setDraft((prev) => {
@@ -736,6 +856,19 @@ export default function GuestChatWindow({ token }: { token: string }) {
   // handleFiles is declared above this and needs it; a ref keeps the two
   // from having to be ordered around each other.
   flashRef.current = flash;
+
+  /**
+   * The slice of the thread actually put in the document.
+   *
+   * Everything older than the window is fetched and held in state; it is
+   * simply not rendered until scrolling up asks for it, at which point the
+   * window grows by a step. Nobody has ever looked at the top of a
+   * thousand-message thread without scrolling there first.
+   */
+  const visible = useMemo(
+    () => (messages.length > renderWindow ? messages.slice(-renderWindow) : messages),
+    [messages, renderWindow],
+  );
 
   const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
   const initials = useMemo(
@@ -844,9 +977,23 @@ export default function GuestChatWindow({ token }: { token: string }) {
       <div className="wa-wall relative min-h-0 flex-1">
         <div
           ref={transcriptRef}
+          onPointerDownCapture={(e) => {
+            // A tap anywhere that is not the row itself dismisses it. Capture
+            // phase so it runs before the bubble's own gesture handler
+            // re-opens the row that was just closed.
+            if (reactingTo && !(e.target as HTMLElement).closest('[data-reaction-row]')) {
+              setReactingTo(null);
+            }
+          }}
           onScroll={(e) => {
             const el = e.currentTarget;
-            if (el.scrollTop < 80) void loadOlder();
+            if (settledRef.current && el.scrollTop < 80) {
+              // Show more of what is already here before going back to the
+              // server for more — otherwise scrolling up fetches a page
+              // that cannot be seen because the window still hides it.
+              setRenderWindow((w) => (messages.length > w ? w + RENDER_WINDOW_STEP : w));
+              void loadOlder();
+            }
             setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
           }}
           /* Pull down at the top to fetch the page before. Scrolling to the
@@ -954,9 +1101,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
             </div>
 
             <ul className="flex flex-col">
-              {messages.map((m, i) => {
-                const prev = messages[i - 1];
-                const next = messages[i + 1];
+              {visible.map((m, i) => {
+                const prev = visible[i - 1];
+                const next = visible[i + 1];
                 const mine = m.from === 'me';
                 const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
                 const first = newDay || startsNewGroup(m, prev);
@@ -964,6 +1111,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                   !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
                 const isImage = Boolean(m.mediaId) && m.type === 'image';
                 const isVoice = Boolean(m.mediaId) && m.type === 'audio';
+                const hasReactions = (m.reactions?.length ?? 0) > 0;
                 const stamp = (
                   <>
                     {formatTime(m.createdAt)}
@@ -982,7 +1130,25 @@ export default function GuestChatWindow({ token }: { token: string }) {
                     )}
 
                     <div
-                      className={`wa-row flex px-1 ${mine ? 'justify-end' : 'justify-start'} ${last ? 'mb-2' : 'mb-[2px]'}`}
+                      className={[
+                        // Not wa-row while this message's reaction row is
+                        // open: content-visibility's paint containment clips
+                        // to the row's box, and the row of emoji sits above
+                        // the bubble, outside it. One row rendering without
+                        // containment for as long as a menu is open costs
+                        // nothing.
+                        reactingTo === m.id ? 'flex px-1' : 'wa-row flex px-1',
+                        mine ? 'justify-end' : 'justify-start',
+                        last ? 'mb-2' : 'mb-[2px]',
+                        // Padding, not margin. content-visibility brings
+                        // paint containment with it, which clips anything
+                        // outside the row's own box — and the reaction chip
+                        // deliberately hangs off the bottom of the bubble.
+                        // Margin sits outside that box and was letting the
+                        // chip be cut in half; padding grows the box so it
+                        // fits inside.
+                        hasReactions ? 'pb-3' : '',
+                      ].join(' ')}
                     >
                       <div
                         className={[
@@ -995,8 +1161,27 @@ export default function GuestChatWindow({ token }: { token: string }) {
                           first ? (mine ? 'wa-tail-out rounded-tr-none' : 'wa-tail-in rounded-tl-none') : '',
                           m.text ? 'select-none' : '',
                         ].join(' ')}
-                        {...(m.text ? longPressProps(m.text) : {})}
+                        {...bubbleGestures(m)}
                       >
+                        {m.replyTo && (
+                          /* The quote sits inside the bubble with a bar down
+                             its leading edge, the way the app it copies does
+                             — a quote above the bubble reads as a separate
+                             message. */
+                          <div
+                            className={`mb-1 overflow-hidden rounded-[5px] border-l-[3px] px-2 py-1 text-[13px] leading-[17px] ${
+                              m.replyTo.from === 'me'
+                                ? 'border-[var(--wa-accent)] bg-black/[0.06]'
+                                : 'border-[#53bdeb] bg-black/[0.05]'
+                            }`}
+                          >
+                            <p className="truncate font-medium text-[12px] text-[var(--wa-accent)]">
+                              {m.replyTo.from === 'me' ? 'You' : title}
+                            </p>
+                            <p className="line-clamp-2 text-[var(--wa-meta)]">{m.replyTo.preview}</p>
+                          </div>
+                        )}
+
                         {isImage ? (
                           <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
                         ) : isVoice ? (
@@ -1047,6 +1232,42 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         >
                           {stamp}
                         </span>
+
+                        {m.reactions && m.reactions.length > 0 && (
+                          /* Overlapping the bottom edge, so a reaction reads
+                             as attached to its message rather than as a tiny
+                             message of its own underneath. */
+                          <div
+                            className={`absolute -bottom-[11px] flex items-center gap-0.5 rounded-full border border-[var(--wa-divider)] bg-[var(--wa-in)] px-1.5 py-[2px] text-[12px] shadow-[var(--wa-bubble-shadow)] ${
+                              mine ? 'right-2' : 'left-2'
+                            }`}
+                          >
+                            {m.reactions.map((r, ri) => (
+                              <span key={`${r.emoji}-${ri}`}>{r.emoji}</span>
+                            ))}
+                          </div>
+                        )}
+
+                        {reactingTo === m.id && (
+                          <div
+                            data-reaction-row
+                            className={`absolute -top-12 z-20 flex items-center gap-1 rounded-full bg-[var(--wa-card)] px-2 py-1.5 shadow-[var(--wa-panel-shadow)] ${
+                              mine ? 'right-0' : 'left-0'
+                            }`}
+                          >
+                            {QUICK_REACTIONS.map((emoji) => (
+                              <button
+                                key={emoji}
+                                type="button"
+                                onClick={() => void react(m.id, emoji)}
+                                aria-label={`React ${emoji}`}
+                                className="flex h-9 w-9 items-center justify-center rounded-full text-[22px] leading-none transition active:scale-90 hover:bg-[var(--wa-hover)]"
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   </li>
@@ -1100,6 +1321,27 @@ export default function GuestChatWindow({ token }: { token: string }) {
         <p className="z-10 shrink-0 bg-red-500/12 px-4 py-1.5 text-center text-[12px] font-medium text-red-600">
           {errorText}
         </p>
+      )}
+
+      {replyTo && !recorder.recording && (
+        <div className="z-20 flex shrink-0 items-center gap-2 bg-[var(--wa-composer)] px-3 pt-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] border-l-[3px] border-[var(--wa-accent)] bg-[var(--wa-input)] px-2.5 py-1.5">
+            <div className="min-w-0 flex-1">
+              <p className="text-[12.5px] font-medium text-[var(--wa-accent)]">
+                {replyTo.from === 'me' ? 'You' : title}
+              </p>
+              <p className="truncate text-[13px] text-[var(--wa-meta)]">{previewOfMessage(replyTo)}</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setReplyTo(null)}
+            aria-label="Cancel reply"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90"
+          >
+            <CloseIcon className="h-[18px] w-[18px]" />
+          </button>
+        </div>
       )}
 
       {emojiOpen && !recorder.recording && <EmojiPicker onPick={insertEmoji} />}
@@ -1496,7 +1738,15 @@ function LiveWaveform({ levels, paused }: { levels: number[]; paused: boolean })
  * header. The object URL is revoked when this unmounts — without that,
  * every image stays in memory for the life of the tab.
  */
-function ChatImage({ token, mediaId, onOpen }: { token: string; mediaId: string; onOpen: (url: string) => void }) {
+function ChatImage({
+  token,
+  mediaId,
+  onOpen,
+}: {
+  token: string;
+  mediaId: string;
+  onOpen: (url: string) => void;
+}) {
   // The demo has no media route behind it, so its images arrive as a src
   // already usable by the tag — the one branch the canned thread needs
   // inside otherwise untouched rendering.
@@ -1510,7 +1760,10 @@ function ChatImage({ token, mediaId, onOpen }: { token: string; mediaId: string;
     let cancelled = false;
     let created: string | null = null;
 
-    fetchMediaObjectUrl(token, mediaId)
+    // 960 rather than the full file: the bubble is a few hundred
+    // pixels wide, and this is still enough for the lightbox on a
+    // phone, so opening a photo costs no second download.
+    fetchMediaObjectUrl(token, mediaId, 960)
       .then((objectUrl) => {
         if (cancelled) {
           URL.revokeObjectURL(objectUrl);
