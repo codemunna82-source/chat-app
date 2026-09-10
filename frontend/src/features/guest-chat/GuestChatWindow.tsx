@@ -14,6 +14,7 @@ import {
   sendLocation,
   sendMessage,
   sendReaction,
+  savePushToken,
   setBlocked,
   socketUrl,
   uploadImages,
@@ -51,6 +52,8 @@ import { LocationBubble } from './LocationBubble';
 import { AttachSheet } from './AttachSheet';
 import { ReportSheet, type ReportIntent } from './ReportSheet';
 import { SafetyRow } from './SafetyRow';
+import { NotifyBar } from './NotifyBar';
+import { enablePush, pushSupport, refreshPush, type PushSupport } from './pushClient';
 import { canRecordAudio, useVoiceRecorder } from './useVoiceRecorder';
 import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
 import { uploadVoiceNote } from './guestApi';
@@ -290,6 +293,18 @@ export default function GuestChatWindow({ token }: { token: string }) {
    * the bottom of the window unsets it.
    */
   const [blocked, setBlockedState] = useState(false);
+  /**
+   * Whether this browser can be told about replies, and whether it has
+   * been asked.
+   *
+   * Starts 'unsupported' rather than reading the browser during render:
+   * Notification.permission does not exist on the server, and deciding
+   * from it here would make the first client paint disagree with the
+   * markup it is hydrating.
+   */
+  const [push, setPush] = useState<PushSupport>('unsupported');
+  const [pushBusy, setPushBusy] = useState(false);
+  const [notifyDismissed, setNotifyDismissed] = useState(true);
   /**
    * How many of the newest messages are rendered.
    *
@@ -1037,6 +1052,65 @@ export default function GuestChatWindow({ token }: { token: string }) {
     }
   }, [demo, token, replyTo]);
 
+  /**
+   * What this browser can do about notifications, decided after mount.
+   *
+   * Also the moment an already-granted registration is refreshed: FCM
+   * rotates tokens, and a browser holding one the server has never seen
+   * stops receiving anything without either side noticing. Nobody is
+   * prompted by this — refreshPush returns immediately unless permission
+   * was already given.
+   */
+  useEffect(() => {
+    if (demo) return;
+    const support = pushSupport();
+    setPush(support);
+
+    // Asked once. Someone who closed the bar came here to talk to a
+    // business, not to be asked again every time they open the link.
+    try {
+      setNotifyDismissed(window.localStorage.getItem(`wa-notify-asked:${token}`) === '1');
+    } catch {
+      // A private window, or storage the browser has switched off. Not
+      // asking is the safer failure: the bar is still reachable, and
+      // asking on every load is the version that annoys.
+      setNotifyDismissed(true);
+    }
+
+    if (support === 'granted') {
+      void refreshPush((pushToken) => savePushToken(token, pushToken));
+    }
+  }, [token, demo]);
+
+  const dismissNotifyBar = useCallback(() => {
+    setNotifyDismissed(true);
+    try {
+      window.localStorage.setItem(`wa-notify-asked:${token}`, '1');
+    } catch {
+      /* nothing to remember it in; the bar simply reappears next time */
+    }
+  }, [token]);
+
+  const turnOnNotifications = useCallback(async () => {
+    setPushBusy(true);
+    try {
+      const result = await enablePush((pushToken) => savePushToken(token, pushToken));
+      setPush(result);
+      if (result === 'granted') {
+        flashRef.current?.('Notifications are on. We will tell you when they reply.');
+      } else if (result === 'denied') {
+        // The browser will not ask again, so pointing at where it can be
+        // undone is the only useful thing left to say.
+        flashRef.current?.('Notifications are blocked for this site. You can allow them in your browser settings.');
+      }
+    } finally {
+      setPushBusy(false);
+      // Either way it has been asked, and asking again on the next load
+      // would be asking a question the browser has already answered.
+      dismissNotifyBar();
+    }
+  }, [token, dismissNotifyBar]);
+
   /** Turning the block off from the bar at the bottom of the window. */
   const unblock = useCallback(async () => {
     if (demo) {
@@ -1783,6 +1857,17 @@ export default function GuestChatWindow({ token }: { token: string }) {
         <p className="z-10 shrink-0 bg-[var(--wa-danger)]/12 px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-danger)]">
           {errorText}
         </p>
+      )}
+
+      {/* Offered only where it can be granted, and only once. See
+          pushSupport() for why an iPhone in a browser tab never sees it. */}
+      {push === 'available' && !notifyDismissed && !recorder.recording && !blocked && (
+        <NotifyBar
+          businessName={title}
+          busy={pushBusy}
+          onEnable={() => void turnOnNotifications()}
+          onDismiss={dismissNotifyBar}
+        />
       )}
 
       {replyTo && !recorder.recording && (

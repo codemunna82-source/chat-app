@@ -13,7 +13,7 @@
  * replied anyway. Only the shell is stored.
  */
 
-const VERSION = 'wa-shell-v1';
+const VERSION = 'wa-shell-v2';
 const SHELL = ['/wa-pattern.svg', '/icon-192.png', '/icon-512.png', '/favicon.svg'];
 
 self.addEventListener('install', (event) => {
@@ -124,4 +124,123 @@ self.addEventListener('fetch', (event) => {
         }),
     );
   }
+});
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Push
+ *
+ * These handlers are deliberately written against the raw Web Push and
+ * Notification APIs rather than importing Firebase's own service-worker
+ * SDK from a CDN. FCM's web delivery IS standard Web Push — the payload
+ * arrives here as JSON either way — so the SDK would add a cross-origin
+ * importScripts, a second copy of the library, and a hard dependency on
+ * gstatic being reachable, to do what the twenty lines below already do.
+ *
+ * The page still uses the Firebase SDK to OBTAIN the token: that part is
+ * genuinely Firebase-specific and not reimplementable.
+ * ────────────────────────────────────────────────────────────────────── */
+
+/**
+ * Where to send a tap when no tab is open.
+ *
+ * The server cannot supply it. A chat link's token is stored only as a
+ * hash — deliberately, so a database dump is not a set of working keys to
+ * every customer conversation — so the backend genuinely cannot rebuild
+ * the URL to put in the notification. The browser knows it, though, so the
+ * page hands it over on load and it is kept here, in this origin's own
+ * cache, which is where the token already lives anyway.
+ */
+const CHAT_URL_KEY = '/__chat-url';
+
+function rememberChatUrl(url) {
+  return caches
+    .open(VERSION)
+    .then((cache) => cache.put(CHAT_URL_KEY, new Response(url)))
+    .catch(() => {});
+}
+
+function readChatUrl() {
+  return caches
+    .match(CHAT_URL_KEY)
+    .then((hit) => (hit ? hit.text() : null))
+    .catch(() => null);
+}
+
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'chat-url' && typeof event.data.url === 'string') {
+    event.waitUntil(rememberChatUrl(event.data.url));
+  }
+});
+
+/** Any tab of this chat that the customer can actually see right now. */
+async function visibleChatClient() {
+  const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+  return all.find((c) => c.visibilityState === 'visible' && c.url.includes('/c/')) ?? null;
+}
+
+self.addEventListener('push', (event) => {
+  // Every push MUST end in a notification. A push event that shows nothing
+  // makes Chrome display its own "This site has been updated in the
+  // background" instead, and repeatedly doing so is grounds for the
+  // browser revoking push permission altogether.
+  event.waitUntil(
+    (async () => {
+      let payload = {};
+      try {
+        payload = event.data ? event.data.json() : {};
+      } catch {
+        /* not JSON — fall through to the generic notification below */
+      }
+
+      const notification = payload.notification || {};
+      const data = payload.data || {};
+      const isCall = data.type === 'call';
+
+      // The chat is open and on screen: the message is already there, and
+      // a notification for something the customer is looking at is noise.
+      // A ring is the exception — the call UI needs the tab's attention
+      // even when the tab has it.
+      if (!isCall && (await visibleChatClient())) return;
+
+      const link = (payload.fcmOptions && payload.fcmOptions.link) || data.link || (await readChatUrl());
+
+      await self.registration.showNotification(notification.title || 'New message', {
+        body: notification.body || '',
+        icon: '/icon-192.png',
+        badge: '/icon-192.png',
+        // Replaces rather than stacks, so a burst of replies is one entry.
+        // A ring gets its own tag even when the server did not send one:
+        // sharing a tag with the message notification would let an
+        // incoming call silently replace an unread reply, or be replaced
+        // by one — either way the customer loses the thing that mattered.
+        tag: notification.tag || (isCall ? `${data.conversationId}:call` : data.conversationId) || 'chat',
+        renotify: true,
+        requireInteraction: isCall,
+        // A ring should be felt; a message should not buzz a pocket at 2am
+        // any harder than the browser's default.
+        vibrate: isCall ? [220, 120, 220, 120, 220] : [90],
+        data: { ...data, link },
+      });
+    })(),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const link = event.notification.data && event.notification.data.link;
+
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      // Focus a tab already on this chat rather than opening a second one.
+      // Two tabs of the same conversation both hold a socket, both ring,
+      // and both have to be silenced by hand.
+      const existing = all.find((c) => c.url.includes('/c/'));
+      if (existing) {
+        await existing.focus();
+        return;
+      }
+      if (link) await self.clients.openWindow(link);
+    })(),
+  );
 });

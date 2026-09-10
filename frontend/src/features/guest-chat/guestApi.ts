@@ -69,6 +69,10 @@ async function request<T>(token: string, path: string, init?: RequestInit): Prom
     const body = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
     throw new Error(body?.error?.message ?? `Request failed (${res.status})`);
   }
+  // 204 is a real answer for the routes that only acknowledge — asking a
+  // body-less response for JSON throws, and the throw would surface as a
+  // failure of something that in fact succeeded.
+  if (res.status === 204) return undefined as T;
   const body = (await res.json()) as { data: T };
   return body.data;
 }
@@ -191,6 +195,21 @@ export function sendReaction(token: string, messageId: string, emoji: string): P
     method: 'POST',
     body: JSON.stringify({ messageId, emoji }),
   });
+}
+
+/**
+ * Hands the server this browser's Web Push token.
+ *
+ * Sent on every load once permission has been given, not only the first
+ * time: FCM rotates tokens, and a browser holding one the server has never
+ * seen stops receiving notifications without either side noticing.
+ */
+export async function savePushToken(linkToken: string, pushToken: string): Promise<void> {
+  await request(linkToken, '/push', { method: 'POST', body: JSON.stringify({ token: pushToken }) });
+}
+
+export async function forgetPushToken(linkToken: string, pushToken: string): Promise<void> {
+  await request(linkToken, '/push', { method: 'DELETE', body: JSON.stringify({ token: pushToken }) });
 }
 
 /** Best-effort: a failed read receipt is never worth surfacing to the customer. */

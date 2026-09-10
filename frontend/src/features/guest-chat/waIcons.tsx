@@ -269,3 +269,12 @@ export function MoreIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function BellIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M18 8.6a6 6 0 1 0-12 0c0 5.2-2.2 6.7-2.2 6.7h16.4S18 13.8 18 8.6z" />
+      <path d="M13.8 19a2 2 0 0 1-3.6 0" />
+    </svg>
+  );
+}
