@@ -5,6 +5,7 @@ import { io, type Socket } from 'socket.io-client';
 import { Mic, MicOff, Phone, PhoneOff } from 'lucide-react';
 import {
   GuestLinkInvalidError,
+  GuestNetworkError,
   fetchIceServers,
   fetchMessages,
   fetchSession,
@@ -18,6 +19,7 @@ import { useGuestCall } from './useGuestCall';
 import { EmojiPicker } from './EmojiPicker';
 import { ChatSkeleton } from './ChatSkeleton';
 import { tapFeedback, useDismissOnBack } from './useDismissOnBack';
+import { outboxToMessage, readOutbox, writeOutbox, type OutboxItem } from './outbox';
 import {
   BackIcon,
   CameraIcon,
@@ -189,6 +191,60 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   /** Counter behind the temporary ids of unacknowledged messages. */
   const draftIdRef = useRef(0);
+  /**
+   * Messages waiting for a connection, newest last.
+   *
+   * A ref rather than state: the flush loop reads it between awaits and
+   * would otherwise work from a snapshot taken before the send it just
+   * completed. What renders is the pending bubbles in `messages`.
+   */
+  const outboxRef = useRef<OutboxItem[]>([]);
+  /** Guards against two flushes running at once — a reconnect and an online event often land together. */
+  const flushingRef = useRef(false);
+  const [offline, setOffline] = useState(false);
+  const [queuedCount, setQueuedCount] = useState(0);
+  /** How far the thread has been dragged past its top, in pixels. */
+  const [pullDistance, setPullDistance] = useState(0);
+  const pullStartRef = useRef<number | null>(null);
+
+  /**
+   * Hold a bubble to copy it.
+   *
+   * Pointer events rather than touch: the same handler then works for a
+   * mouse held down on a desktop, and it is the only way to get this on a
+   * bubble whose text is select-none — which it has to be, because
+   * otherwise a long press starts a text selection and the browser's own
+   * handle UI appears instead.
+   */
+  const longPressProps = useCallback(
+    (text: string) => {
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const cancel = () => {
+        if (timer) clearTimeout(timer);
+        timer = null;
+      };
+      return {
+        onPointerDown: () => {
+          cancel();
+          timer = setTimeout(() => {
+            void navigator.clipboard
+              ?.writeText(text)
+              .then(() => {
+                tapFeedback(12);
+                flashRef.current?.('Copied');
+              })
+              .catch(() => flashRef.current?.('Could not copy'));
+          }, 480);
+        },
+        onPointerUp: cancel,
+        onPointerLeave: cancel,
+        onPointerCancel: cancel,
+        // A press that turns into a scroll is a scroll, not a copy.
+        onTouchMove: cancel,
+      };
+    },
+    [],
+  );
   /** See flash(), below — declared here so earlier callbacks can reach it. */
   const flashRef = useRef<((message: string) => void) | null>(null);
 
@@ -230,6 +286,58 @@ export default function GuestChatWindow({ token }: { token: string }) {
    */
   const [canRecord, setCanRecord] = useState(false);
   useEffect(() => setCanRecord(canRecordAudio()), []);
+
+  /**
+   * Sends whatever is waiting, oldest first, and stops at the first
+   * failure.
+   *
+   * Order matters: a customer who typed three lines expects them in that
+   * order at the other end, so a failure has to halt the loop rather than
+   * skip past and deliver the rest out of sequence. A rejected fetch means
+   * no connection — the item stays queued. An error the server answered
+   * with means this message will never be accepted, so it is dropped and
+   * reported rather than retried forever.
+   */
+  const flushOutbox = useCallback(async () => {
+    if (flushingRef.current || demo) return;
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return;
+
+    flushingRef.current = true;
+    try {
+      while (outboxRef.current.length > 0) {
+        const item = outboxRef.current[0]!;
+        try {
+          const saved = await sendMessage(token, item.text);
+          outboxRef.current = outboxRef.current.slice(1);
+          writeOutbox(token, outboxRef.current);
+          setQueuedCount(outboxRef.current.length);
+          setMessages((prev) => mergeMessage(prev.filter((m) => m.id !== item.id), saved));
+        } catch (err) {
+          if (err instanceof GuestLinkInvalidError) {
+            outboxRef.current = [];
+            writeOutbox(token, []);
+            setQueuedCount(0);
+            setPhase('invalid');
+            return;
+          }
+          if (err instanceof GuestNetworkError) {
+            // Still no connection. Leave everything queued; the online
+            // event or the socket reconnecting will call this again.
+            setOffline(true);
+            return;
+          }
+          // The server answered and refused. Retrying cannot help.
+          outboxRef.current = outboxRef.current.slice(1);
+          writeOutbox(token, outboxRef.current);
+          setQueuedCount(outboxRef.current.length);
+          setMessages((prev) => prev.filter((m) => m.id !== item.id));
+          setErrorText(err instanceof Error ? err.message : 'Message could not be sent');
+        }
+      }
+    } finally {
+      flushingRef.current = false;
+    }
+  }, [token, demo]);
 
   // ---- initial load -------------------------------------------------
   useEffect(() => {
@@ -287,7 +395,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
       transports: ['websocket', 'polling'],
     });
 
-    s.on('connect', () => setConnected(true));
+    s.on('connect', () => {
+      setConnected(true);
+      setOffline(false);
+      // The reliable "you are reachable again" signal — see the online
+      // listener above for why navigator.onLine alone is not enough.
+      void flushOutbox();
+    });
     s.on('disconnect', () => setConnected(false));
     // The link was revoked or expired while the page sat open. The server
     // has already closed the socket; showing it as disconnected is more
@@ -325,7 +439,41 @@ export default function GuestChatWindow({ token }: { token: string }) {
       setAgentOnline(false);
       setAgentTyping(false);
     };
-  }, [phase, token, demo]);
+  }, [phase, token, demo, flushOutbox]);
+
+  // ---- the outbox ---------------------------------------------------
+  useEffect(() => {
+    if (phase !== 'ready' || demo) return;
+
+    // Anything typed before the tab was closed comes back as pending
+    // bubbles in its original place, then goes out.
+    const restored = readOutbox(token);
+    outboxRef.current = restored;
+    setQueuedCount(restored.length);
+    if (restored.length > 0) {
+      setMessages((prev) => restored.map(outboxToMessage).reduce(mergeMessage, prev));
+    }
+    void flushOutbox();
+  }, [phase, token, demo, flushOutbox]);
+
+  useEffect(() => {
+    const update = () => {
+      const isOffline = typeof navigator !== 'undefined' && navigator.onLine === false;
+      setOffline(isOffline);
+      if (!isOffline) void flushOutbox();
+    };
+    update();
+    window.addEventListener('online', update);
+    window.addEventListener('offline', update);
+    // navigator.onLine lies often — it reports a WiFi association, not
+    // whether anything is reachable through it. The socket reconnecting is
+    // the honest signal that a send will now go through, so that retries
+    // too, and the two together cover both directions.
+    return () => {
+      window.removeEventListener('online', update);
+      window.removeEventListener('offline', update);
+    };
+  }, [flushOutbox]);
 
   // ---- keep the newest message in view ------------------------------
   useEffect(() => {
@@ -451,27 +599,15 @@ export default function GuestChatWindow({ token }: { token: string }) {
       return;
     }
 
-    try {
-      const saved = await sendMessage(token, text);
-      setMessages((prev) => {
-        // The socket echo may have already replaced the pending row, in
-        // which case this id is present and merge leaves the list alone.
-        const withoutTemp = prev.filter((m) => m.id !== tempId);
-        return mergeMessage(withoutTemp, saved);
-      });
-    } catch (err) {
-      setMessages((prev) => prev.filter((m) => m.id !== tempId));
-      // Put the text back rather than losing what they typed.
-      setDraft(text);
-      if (err instanceof GuestLinkInvalidError) {
-        setPhase('invalid');
-      } else {
-        setErrorText(err instanceof Error ? err.message : 'Message could not be sent');
-      }
-    } finally {
-      setSending(false);
-    }
-  }, [draft, sending, token, stopTyping, demo]);
+    // Queued first, sent second — always, not only when offline. The
+    // queue is what survives the tab being closed mid-send, and a message
+    // that took the direct path would be the one message that did not.
+    outboxRef.current = [...outboxRef.current, { id: tempId, text, createdAt: optimistic.createdAt }];
+    writeOutbox(token, outboxRef.current);
+    setQueuedCount(outboxRef.current.length);
+    setSending(false);
+    void flushOutbox();
+  }, [draft, sending, token, stopTyping, demo, flushOutbox]);
 
   const handleFiles = useCallback(
     async (fileList: FileList | null) => {
@@ -713,8 +849,50 @@ export default function GuestChatWindow({ token }: { token: string }) {
             if (el.scrollTop < 80) void loadOlder();
             setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
           }}
+          /* Pull down at the top to fetch the page before. Scrolling to the
+             top already triggers it, but on a phone that only works if
+             there is enough thread to scroll — and the gesture is what
+             people reach for anyway. */
+          onTouchStart={(e) => {
+            pullStartRef.current =
+              e.currentTarget.scrollTop <= 0 && olderCursor ? (e.touches[0]?.clientY ?? null) : null;
+          }}
+          onTouchMove={(e) => {
+            const start = pullStartRef.current;
+            if (start === null) return;
+            const delta = (e.touches[0]?.clientY ?? start) - start;
+            // Damped, so the thread follows the finger without travelling
+            // as far as it — the resistance is what says "this is the end".
+            setPullDistance(delta > 0 ? Math.min(72, delta * 0.45) : 0);
+          }}
+          onTouchEnd={() => {
+            if (pullDistance > 44) {
+              tapFeedback(10);
+              void loadOlder();
+            }
+            pullStartRef.current = null;
+            setPullDistance(0);
+          }}
           className="wa-scroll absolute inset-0 overflow-y-auto overscroll-contain px-2 py-3 sm:px-4"
         >
+          {(pullDistance > 0 || loadingOlder) && (
+            <div
+              className="pointer-events-none flex items-center justify-center overflow-hidden transition-[height] duration-150"
+              style={{ height: loadingOlder ? 36 : pullDistance }}
+              aria-hidden
+            >
+              <span
+                className={`flex h-7 w-7 items-center justify-center rounded-full bg-[var(--wa-chip)] text-[var(--wa-chip-text)] shadow-[var(--wa-bubble-shadow)] ${
+                  loadingOlder ? 'animate-spin' : ''
+                }`}
+                style={{ transform: loadingOlder ? undefined : `rotate(${pullDistance * 4}deg)` }}
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth={2.2} strokeLinecap="round">
+                  <path d="M12 5v9M8 9l4-4 4 4" />
+                </svg>
+              </span>
+            </div>
+          )}
           <div className="mx-auto w-full max-w-[1100px]">
             {/* The privacy notice, in the place the messenger puts it. The
                 wording is what is actually true here — the transport is
@@ -775,12 +953,6 @@ export default function GuestChatWindow({ token }: { token: string }) {
               </div>
             </div>
 
-            {loadingOlder && (
-              <p className="pb-3 text-center text-[11.5px] text-[var(--wa-chip-text)]">
-                Loading earlier messages…
-              </p>
-            )}
-
             <ul className="flex flex-col">
               {messages.map((m, i) => {
                 const prev = messages[i - 1];
@@ -809,7 +981,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
                       </div>
                     )}
 
-                    <div className={`flex px-1 ${mine ? 'justify-end' : 'justify-start'} ${last ? 'mb-2' : 'mb-[2px]'}`}>
+                    <div
+                      className={`wa-row flex px-1 ${mine ? 'justify-end' : 'justify-start'} ${last ? 'mb-2' : 'mb-[2px]'}`}
+                    >
                       <div
                         className={[
                           'relative max-w-[85%] rounded-[7.5px] shadow-[var(--wa-bubble-shadow)] sm:max-w-[65%] md:max-w-[440px]',
@@ -819,7 +993,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
                           // and a squared corner — a tail on every bubble is
                           // the tell of a chat UI copied from a screenshot.
                           first ? (mine ? 'wa-tail-out rounded-tr-none' : 'wa-tail-in rounded-tl-none') : '',
+                          m.text ? 'select-none' : '',
                         ].join(' ')}
+                        {...(m.text ? longPressProps(m.text) : {})}
                       >
                         {isImage ? (
                           <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
@@ -898,6 +1074,16 @@ export default function GuestChatWindow({ token }: { token: string }) {
       </div>
 
       {/* ── Status strips ──────────────────────────────────────── */}
+      {(offline || queuedCount > 0) && (
+        <p className="z-10 shrink-0 bg-[var(--wa-notice)] px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-notice-text)]">
+          {offline
+            ? queuedCount > 0
+              ? `No connection · ${queuedCount} ${queuedCount === 1 ? 'message' : 'messages'} will send when you're back online`
+              : "No connection · you can keep typing, messages will send when you're back"
+            : `Sending ${queuedCount} ${queuedCount === 1 ? 'message' : 'messages'}…`}
+        </p>
+      )}
+
       {uploading > 0 && (
         <p className="z-10 shrink-0 bg-[var(--wa-accent)]/12 px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-accent)]">
           Sending {uploading} {uploading === 1 ? 'photo' : 'photos'}…

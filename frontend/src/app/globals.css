@@ -675,3 +675,12 @@ html.dark .wa-shimmer::after {
     animation: none;
   }
 }
+
+/* Long threads: the browser skips layout and paint for rows that are not
+ * on screen. contain-intrinsic-size keeps the scrollbar honest by giving
+ * a skipped row a plausible height instead of collapsing it to nothing,
+ * which is what makes the thumb jump while scrolling. */
+.wa-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
