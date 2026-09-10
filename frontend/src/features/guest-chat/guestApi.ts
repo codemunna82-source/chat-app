@@ -1,4 +1,4 @@
-import type { GuestMessage, GuestSession } from './types';
+import type { GuestLocation, GuestMessage, GuestSession, ReportReason } from './types';
 
 /**
  * Deliberately not the app's shared axios instance: that one reads a
@@ -126,6 +126,62 @@ export function sendMessage(
   return request<GuestMessage>(token, '/messages', {
     method: 'POST',
     body: JSON.stringify({ text, replyToMessageId }),
+  });
+}
+
+/**
+ * A place the customer shared.
+ *
+ * Sent as numbers, not a formatted string: the server writes the readable
+ * line itself so that every reader of the message — the agent's app, the
+ * chat list, a push notification — gets the same sentence, rather than
+ * each client inventing its own.
+ */
+export function sendLocation(
+  token: string,
+  place: GuestLocation & { replyToMessageId?: string },
+): Promise<GuestMessage> {
+  return request<GuestMessage>(token, '/location', {
+    method: 'POST',
+    body: JSON.stringify(place),
+  });
+}
+
+export interface ReportInput {
+  /** Required when `report` is true; a block on its own needs no accusation. */
+  reason?: ReportReason;
+  details?: string;
+  /** The message the complaint is about, if the customer picked one. */
+  messageId?: string;
+  block: boolean;
+  report: boolean;
+}
+
+export interface ReportResult {
+  reportId?: string;
+  blocked: boolean;
+  /** What the server recorded of the reported message — echoed back so the receipt is the stored copy. */
+  reportedMessagePreview?: string;
+}
+
+/**
+ * One call for reporting, blocking, or both — because on the customer's
+ * screen it is one decision. Two calls would allow the half-done outcome
+ * where the report lands and the block does not, leaving someone who asked
+ * to stop hearing from a business still hearing from them.
+ */
+export function submitReport(token: string, input: ReportInput): Promise<ReportResult> {
+  return request<ReportResult>(token, '/report', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+/** Turning the block on or off on its own — the Unblock button's call. */
+export function setBlocked(token: string, blocked: boolean): Promise<{ blocked: boolean }> {
+  return request<{ blocked: boolean }>(token, '/block', {
+    method: 'POST',
+    body: JSON.stringify({ blocked }),
   });
 }
 

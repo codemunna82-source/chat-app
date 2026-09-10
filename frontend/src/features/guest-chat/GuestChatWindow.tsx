@@ -11,8 +11,10 @@ import {
   fetchSession,
   fetchMediaObjectUrl,
   markRead,
+  sendLocation,
   sendMessage,
   sendReaction,
+  setBlocked,
   socketUrl,
   uploadImages,
 } from './guestApi';
@@ -23,13 +25,16 @@ import { tapFeedback, useDismissOnBack } from './useDismissOnBack';
 import { outboxToMessage, readOutbox, writeOutbox, type OutboxItem } from './outbox';
 import {
   BackIcon,
+  BlockIcon,
   CameraIcon,
   ChevronDownIcon,
   ClockTick,
   CloseIcon,
+  FlagIcon,
   KeyboardIcon,
   LockIcon,
   MicIcon,
+  MoreIcon,
   PauseIcon,
   PersonIcon,
   PhoneIcon,
@@ -42,6 +47,9 @@ import {
   VerifiedIcon,
 } from './waIcons';
 import { VoiceBubble } from './VoiceBubble';
+import { LocationBubble } from './LocationBubble';
+import { AttachSheet } from './AttachSheet';
+import { ReportSheet, type ReportIntent } from './ReportSheet';
 import { canRecordAudio, useVoiceRecorder } from './useVoiceRecorder';
 import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
 import { uploadVoiceNote } from './guestApi';
@@ -257,6 +265,30 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [replyTo, setReplyTo] = useState<ThreadMessage | null>(null);
   /** Which message has its reaction row open. */
   const [reactingTo, setReactingTo] = useState<string | null>(null);
+  /** The `+` tray. */
+  const [attachOpen, setAttachOpen] = useState(false);
+  /** True while the browser is resolving a position fix, which can take seconds. */
+  const [locating, setLocating] = useState(false);
+  /** The header's overflow menu. */
+  const [menuOpen, setMenuOpen] = useState(false);
+  /**
+   * The open report sheet, and what it is about.
+   *
+   * `message` is null for a complaint about the conversation rather than
+   * one line of it — which is what the header menu opens, and what someone
+   * who wants the business to stop generally means.
+   */
+  const [report, setReport] = useState<{ message: ThreadMessage | null; intent: ReportIntent } | null>(
+    null,
+  );
+  /**
+   * Whether the customer has blocked this chat.
+   *
+   * Held here rather than read off `session` on each render because it
+   * changes without a session reload — the sheet sets it, and the bar at
+   * the bottom of the window unsets it.
+   */
+  const [blocked, setBlockedState] = useState(false);
   /**
    * How many of the newest messages are rendered.
    *
@@ -336,9 +368,15 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const closeLightbox = useCallback(() => setLightbox(null), []);
   const closeEmoji = useCallback(() => setEmojiOpen(false), []);
   const closeReactions = useCallback(() => setReactingTo(null), []);
+  const closeAttach = useCallback(() => setAttachOpen(false), []);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  const closeReport = useCallback(() => setReport(null), []);
   useDismissOnBack(emojiOpen, closeEmoji);
   useDismissOnBack(reactingTo !== null, closeReactions);
+  useDismissOnBack(attachOpen, closeAttach);
+  useDismissOnBack(menuOpen, closeMenu);
   useDismissOnBack(lightbox !== null, closeLightbox);
+  useDismissOnBack(report !== null, closeReport);
 
   /**
    * The two gestures a bubble answers to.
@@ -484,6 +522,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
         ]);
         if (cancelled) return;
         setSession(loadedSession);
+        // The block survives the tab that set it, so it is restored here
+        // rather than being state the window only ever learns about from
+        // its own tap.
+        setBlockedState(Boolean(loadedSession.blocked));
         setMessages(loadedMessages.items);
         setOlderCursor(loadedMessages.nextCursor);
         setPhase('ready');
@@ -855,6 +897,112 @@ export default function GuestChatWindow({ token }: { token: string }) {
   );
 
   /**
+   * Sharing where the customer is.
+   *
+   * The browser's own permission prompt is the gate — there is no way to
+   * ask for a position without it, and no way to get one the customer has
+   * not agreed to hand over. What this adds is an answer for each way it
+   * can end, because the failures are common and mutually unhelpful: a
+   * refused prompt, a device with the radio off, and a fix that never
+   * arrives all look identical from here unless they are told apart.
+   *
+   * No watchPosition and no repeat: this sends one place once. A window
+   * that kept a location subscription open after a single share would be
+   * tracking someone who asked to be pinned, which is a different thing
+   * from what the button says.
+   */
+  const shareLocation = useCallback(async () => {
+    setAttachOpen(false);
+
+    if (demo) {
+      // A canned pin, and the browser's location API is never called at
+      // all. Showing the card is the point of a demo; reading someone's
+      // actual position to populate a page they opened to look around
+      // would be taking something real for a pretend send.
+      setAtBottom(true);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: `demo-loc-${Date.now()}`,
+          from: 'me',
+          type: 'location',
+          text: 'Location (12.961100, 77.638700)',
+          hasMedia: false,
+          createdAt: new Date().toISOString(),
+          location: { latitude: 12.9611, longitude: 77.6387 },
+        },
+      ]);
+      flashRef.current?.('Demo chat — that is a sample pin. Your real location was never read.');
+      return;
+    }
+    if (typeof navigator === 'undefined' || !navigator.geolocation) {
+      flashRef.current?.('This browser cannot share a location.');
+      return;
+    }
+
+    setLocating(true);
+    let position: GeolocationPosition;
+    try {
+      position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          // Long enough for a cold GPS fix outdoors, short enough that a
+          // device that is never going to answer stops pretending to try.
+          timeout: 15_000,
+          // A fix from the last half minute is the same place. Re-acquiring
+          // it costs seconds and battery for no difference.
+          maximumAge: 30_000,
+        });
+      });
+    } catch (err) {
+      const code = (err as GeolocationPositionError | undefined)?.code;
+      flashRef.current?.(
+        code === 1
+          ? 'Location blocked. Allow it in your browser’s site settings to share where you are.'
+          : code === 3
+            ? 'Could not get a location in time. Try again somewhere with a clearer sky or signal.'
+            : 'Could not get your location. Check that location is turned on for this device.',
+      );
+      return;
+    } finally {
+      setLocating(false);
+    }
+
+    setReplyTo(null);
+    setErrorText(null);
+    setAtBottom(true);
+    tapFeedback(10);
+
+    try {
+      const sent = await sendLocation(token, {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        replyToMessageId: replyTo && !replyTo.pending ? replyTo.id : undefined,
+      });
+      setMessages((prev) => mergeMessage(prev, sent));
+    } catch (err) {
+      if (err instanceof GuestLinkInvalidError) setPhase('invalid');
+      else setErrorText(err instanceof Error ? err.message : 'Could not send your location.');
+    }
+  }, [demo, token, replyTo]);
+
+  /** Turning the block off from the bar at the bottom of the window. */
+  const unblock = useCallback(async () => {
+    if (demo) {
+      setBlockedState(false);
+      return;
+    }
+    try {
+      await setBlocked(token, false);
+      setBlockedState(false);
+      flashRef.current?.('Unblocked. You can send messages again.');
+    } catch (err) {
+      if (err instanceof GuestLinkInvalidError) setPhase('invalid');
+      else flashRef.current?.('Could not unblock just now. Try again in a moment.');
+    }
+  }, [demo, token]);
+
+  /**
    * Starts recording, or explains why it cannot.
    *
    * The permission prompt is the first thing a customer sees here, so the
@@ -1099,12 +1247,68 @@ export default function GuestChatWindow({ token }: { token: string }) {
         <button
           type="button"
           onClick={() => void call.startCall()}
-          disabled={callActive || !connected}
+          disabled={callActive || !connected || blocked}
           aria-label="Voice call"
-          className="mr-1.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition active:scale-90 disabled:opacity-35"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition active:scale-90 disabled:opacity-35"
         >
           <PhoneIcon className="h-[22px] w-[22px]" />
         </button>
+
+        {/* The overflow menu, where the messenger keeps the actions that
+            are about the chat rather than in it. Block and Report belong
+            here and nowhere else in the header: they are rare, they are
+            consequential, and a one-tap button for either would be reached
+            by accident. */}
+        <div className="relative mr-0.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setMenuOpen((v) => !v)}
+            aria-label="More options"
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            className="flex h-10 w-9 items-center justify-center rounded-full transition active:scale-90"
+          >
+            <MoreIcon className="h-[19px] w-[19px]" />
+          </button>
+
+          {menuOpen && (
+            <>
+              <button
+                type="button"
+                aria-label="Close menu"
+                onClick={() => setMenuOpen(false)}
+                className="fixed inset-0 z-40 cursor-default"
+              />
+              <div
+                role="menu"
+                className="absolute right-1 top-[calc(100%-2px)] z-50 w-[196px] overflow-hidden rounded-[8px] bg-[var(--wa-card)] py-1 shadow-[var(--wa-panel-shadow)]"
+              >
+                <MenuItem
+                  icon={<FlagIcon className="h-[17px] w-[17px]" />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    setReport({ message: null, intent: 'report' });
+                  }}
+                >
+                  Report
+                </MenuItem>
+                <MenuItem
+                  icon={<BlockIcon className="h-[17px] w-[17px]" />}
+                  onClick={() => {
+                    setMenuOpen(false);
+                    if (blocked) {
+                      void unblock();
+                      return;
+                    }
+                    setReport({ message: null, intent: 'block' });
+                  }}
+                >
+                  {blocked ? 'Unblock' : 'Block'}
+                </MenuItem>
+              </div>
+            </>
+          )}
+        </div>
       </header>
 
       {/* ── Transcript ─────────────────────────────────────────── */}
@@ -1239,6 +1443,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
                   !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
                 const isImage = Boolean(m.mediaId) && m.type === 'image';
                 const isVoice = Boolean(m.mediaId) && m.type === 'audio';
+                // Only when the coordinates actually came through. A
+                // location message from before this field existed still has
+                // its text line, and rendering it as a pin at (0, 0) would
+                // be worse than rendering it as the sentence it is.
+                const place = m.type === 'location' ? m.location : undefined;
+                const highlighted = report?.message?.id === m.id;
                 const hasReactions = (m.reactions?.length ?? 0) > 0;
                 const stamp = (
                   <>
@@ -1281,7 +1491,17 @@ export default function GuestChatWindow({ token }: { token: string }) {
                       <div
                         className={[
                           'relative max-w-[85%] rounded-[7.5px] shadow-[var(--wa-bubble-shadow)] sm:max-w-[65%] md:max-w-[440px]',
-                          isImage ? 'p-[3px]' : isVoice ? 'px-[7px] pb-[6px] pt-[5px]' : 'px-[9px] pb-[7px] pt-[6px]',
+                          isImage || place
+                            ? 'p-[3px]'
+                            : isVoice
+                              ? 'px-[7px] pb-[6px] pt-[5px]'
+                              : 'px-[9px] pb-[7px] pt-[6px]',
+                          // The message the open report sheet is about. It
+                          // stays exactly where it was in the thread — the
+                          // ring is the whole highlight — so the customer
+                          // can still read what came before and after it
+                          // while deciding what to write.
+                          highlighted ? 'wa-highlighted' : '',
                           mine ? 'bg-[var(--wa-out)]' : 'bg-[var(--wa-in)]',
                           // Only the opening bubble of a run carries a tail
                           // and a squared corner — a tail on every bubble is
@@ -1314,6 +1534,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
                           <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
                         ) : isVoice ? (
                           <VoiceBubble token={token} mediaId={m.mediaId!} mine={mine} />
+                        ) : place ? (
+                          <LocationBubble place={place} mine={mine} />
                         ) : (
                           m.hasMedia &&
                           !m.text && (
@@ -1321,7 +1543,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
                           )
                         )}
 
-                        {m.text && (
+                        {/* A location's text is its own coordinate line,
+                            already printed inside the card. Repeating it
+                            underneath is the sort of duplication that only
+                            happens because the branch above forgot to
+                            exclude it. */}
+                        {m.text && !place && (
                           <p
                             className={`whitespace-pre-wrap break-words text-[14.2px] leading-[19px] ${
                               // A captioned image keeps the picture flush to
@@ -1353,9 +1580,15 @@ export default function GuestChatWindow({ token }: { token: string }) {
                             // is what is underneath. With a caption the stamp
                             // sits on the words instead, where white on the
                             // bubble's own background is unreadable.
+                            // The location card's stamp sits on its label
+                            // strip, which is the bubble's own colour — so
+                            // it takes the bubble's meta colour, not the
+                            // white-on-photo treatment.
                             isImage && !m.text
                               ? 'bottom-[9px] right-[10px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]'
-                              : 'bottom-[5px] right-[9px] text-[var(--wa-meta)]',
+                              : place
+                                ? 'bottom-[8px] right-[11px] text-[var(--wa-meta)]'
+                                : 'bottom-[5px] right-[9px] text-[var(--wa-meta)]',
                           ].join(' ')}
                         >
                           {stamp}
@@ -1402,6 +1635,35 @@ export default function GuestChatWindow({ token }: { token: string }) {
                                 {emoji}
                               </button>
                             ))}
+
+                            {/* Reporting one message lives here, at the end
+                                of the row a long press already opens, for
+                                the same reason the emoji do: it is about
+                                THIS message, and any other entry point
+                                would make the customer describe which one
+                                in words. Only messages from the business —
+                                reporting your own is not a thing anyone
+                                means to do. */}
+                            {m.from === 'business' && !m.pending && (
+                              <>
+                                <span
+                                  className="mx-0.5 h-5 w-px shrink-0 bg-[var(--wa-divider)]"
+                                  aria-hidden
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setReactingTo(null);
+                                    setReport({ message: m, intent: 'report' });
+                                  }}
+                                  aria-label="Report this message"
+                                  title="Report this message"
+                                  className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
+                                >
+                                  <FlagIcon className="h-[18px] w-[18px]" />
+                                </button>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -1482,6 +1744,47 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
       {emojiOpen && !recorder.recording && <EmojiPicker onPick={insertEmoji} />}
 
+      {attachOpen && !recorder.recording && !blocked && (
+        <AttachSheet
+          locating={locating}
+          onClose={() => setAttachOpen(false)}
+          onPhotos={() => {
+            setAttachOpen(false);
+            fileInputRef.current?.click();
+          }}
+          onCamera={() => {
+            setAttachOpen(false);
+            cameraInputRef.current?.click();
+          }}
+          onLocation={() => void shareLocation()}
+        />
+      )}
+
+      {/* ── Blocked ────────────────────────────────────────────────
+          Replaces the composer rather than disabling it. A greyed-out
+          text field still invites typing, and the message that gets typed
+          into it is lost — while the one thing someone in this state is
+          looking for is the way back out, which is the button. */}
+      {blocked && !recorder.recording && (
+        <div className="z-20 shrink-0 bg-[var(--wa-composer)] px-4 pb-[calc(0.7rem+env(safe-area-inset-bottom,0px))] pt-3 text-center">
+          <p className="flex items-center justify-center gap-1.5 text-[13.5px] font-medium text-[var(--wa-text)]">
+            <BlockIcon className="h-4 w-4 text-[var(--wa-card-sub)]" />
+            You blocked {title}
+          </p>
+          <p className="mx-auto mt-0.5 max-w-[330px] text-[12.5px] leading-[17px] text-[var(--wa-card-sub)]">
+            They cannot message or call you here, and you cannot send messages either. Nothing in this
+            chat has been deleted.
+          </p>
+          <button
+            type="button"
+            onClick={() => void unblock()}
+            className="mt-2.5 h-10 rounded-full bg-[var(--wa-accent)] px-7 text-[14.5px] font-medium text-white transition active:scale-95"
+          >
+            Unblock
+          </button>
+        </div>
+      )}
+
       {/* ── Recording ──────────────────────────────────────────────
           Replaces the composer outright rather than sitting above it:
           while a recording is running there is nothing else to do, and a
@@ -1533,7 +1836,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
       {/* ── Composer ───────────────────────────────────────────── */}
       <form
-        hidden={recorder.recording}
+        hidden={recorder.recording || blocked}
         className="z-20 flex shrink-0 items-end gap-1.5 bg-[var(--wa-composer)] px-1.5 pb-[calc(0.4rem+env(safe-area-inset-bottom,0px))] pt-1.5"
         onSubmit={(e) => {
           e.preventDefault();
@@ -1567,10 +1870,17 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
+          onClick={() => {
+            setEmojiOpen(false);
+            setAttachOpen((v) => !v);
+          }}
           disabled={uploading > 0}
-          aria-label="Attach photos"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)] disabled:opacity-35"
+          aria-label="Attach"
+          aria-haspopup="menu"
+          aria-expanded={attachOpen}
+          className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-full transition active:scale-90 hover:bg-[var(--wa-hover)] disabled:opacity-35 ${
+            attachOpen ? 'rotate-45 text-[var(--wa-accent)]' : 'text-[var(--wa-icon)]'
+          }`}
         >
           <PlusIcon className="h-[26px] w-[26px]" />
         </button>
@@ -1746,6 +2056,18 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
       )}
 
+      {report && (
+        <ReportSheet
+          token={token}
+          demo={demo}
+          businessName={title}
+          message={report.message}
+          intent={report.intent}
+          onClose={() => setReport(null)}
+          onBlockedChange={setBlockedState}
+        />
+      )}
+
       {/* Full-size view. The object URL is the one the bubble already
           holds, so opening a picture costs no second download. */}
       {lightbox && (
@@ -1769,6 +2091,29 @@ export default function GuestChatWindow({ token }: { token: string }) {
         </div>
       )}
     </main>
+  );
+}
+
+/** One row of the header's overflow menu. */
+function MenuItem({
+  children,
+  icon,
+  onClick,
+}: {
+  children: React.ReactNode;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      onClick={onClick}
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[14.5px] text-[var(--wa-text)] transition hover:bg-[var(--wa-hover)] active:bg-[var(--wa-hover)]"
+    >
+      <span className="shrink-0 text-[var(--wa-icon)]">{icon}</span>
+      {children}
+    </button>
   );
 }
 

@@ -13,36 +13,99 @@ import { useEffect } from 'react';
  * wherever they were before the chat, with the tray still notionally open
  * behind them.
  *
- * The trick is to push a history entry when the layer opens, so there is
- * something for back to consume, and to consume it ourselves when the
- * layer is closed any other way — otherwise every open/close cycle leaves
- * a dead entry behind and back stops working after a few of them.
+ * The trick is to push a history entry when a layer opens, so there is
+ * something for back to consume, and to take it back off when the layer is
+ * closed any other way — otherwise every open/close cycle leaves a dead
+ * entry behind and back stops working after a few of them.
+ *
+ * The bookkeeping lives in one module-level manager rather than in each
+ * hook, and that is the whole design. Per-layer listeners cannot cope with
+ * two layers changing in the same commit: closing the reaction row while
+ * opening the report sheet made the row take its entry back, and the pop
+ * that produced arrived at the sheet, which had no way to know it was not
+ * a back press and closed itself in the frame it appeared. One owner sees
+ * both halves of that transition and nets them out to no history change
+ * at all.
  */
+
+interface Layer {
+  id: number;
+  dismiss: () => void;
+}
+
+/** Open layers, innermost last. Back closes the last one. */
+const layers: Layer[] = [];
+/** How many history entries we have pushed and not yet given back. */
+let entries = 0;
+let listening = false;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+let seq = 0;
+
+function onPop(): void {
+  entries = Math.max(0, entries - 1);
+  // One press closes one layer: the innermost. Anything below it keeps its
+  // entry and its turn. When no layer is open the pop is the spare entry
+  // being spent, and there is nothing to close.
+  if (layers.length > entries) layers.pop()?.dismiss();
+  detachIfIdle();
+}
+
+function detachIfIdle(): void {
+  if (listening && entries === 0 && layers.length === 0) {
+    window.removeEventListener('popstate', onPop);
+    listening = false;
+  }
+}
+
+/**
+ * Gives back any entry no open layer still needs — but on the next task,
+ * not now.
+ *
+ * The delay is the whole point. Closing one layer while opening another
+ * happens in a single commit, and `history.back()` is asynchronous: an
+ * immediate call produced a pop that landed after the new layer had
+ * pushed, so the new layer read it as a back press and closed itself in
+ * the frame it appeared. By the time this runs, that commit has finished
+ * and the replacement layer is already counted — so the two net out and
+ * nothing is spent at all.
+ */
+function scheduleSettle(): void {
+  if (settleTimer) return;
+  settleTimer = setTimeout(() => {
+    settleTimer = null;
+    if (entries > layers.length && entries > 0) {
+      entries -= 1;
+      window.history.back();
+    }
+  }, 0);
+}
+
+function openLayer(layer: Layer): void {
+  layers.push(layer);
+  // An entry a just-closed layer has not spent yet is reused rather than
+  // stacked on: they are interchangeable markers, and one per open layer
+  // is the count that makes back close exactly one thing.
+  if (entries >= layers.length) return;
+  window.history.pushState({ waLayer: ++seq }, '');
+  entries += 1;
+  if (!listening) {
+    window.addEventListener('popstate', onPop);
+    listening = true;
+  }
+}
+
+function closeLayer(id: number): void {
+  const index = layers.findIndex((l) => l.id === id);
+  if (index !== -1) layers.splice(index, 1);
+  scheduleSettle();
+}
+
 export function useDismissOnBack(open: boolean, dismiss: () => void): void {
   useEffect(() => {
     if (!open) return;
-
-    // Marked so popstate can tell our own entry from a real navigation the
-    // customer made before opening the chat.
-    const marker = { waLayer: Date.now() };
-    window.history.pushState(marker, '');
-
-    let dismissedByBack = false;
-    const onPop = () => {
-      dismissedByBack = true;
-      dismiss();
-    };
-    window.addEventListener('popstate', onPop);
-
-    return () => {
-      window.removeEventListener('popstate', onPop);
-      // Closed by tapping the X rather than by going back: the entry we
-      // pushed is still on the stack and has to come off, or back would
-      // do nothing at all the next time it is pressed.
-      if (!dismissedByBack && window.history.state?.waLayer === marker.waLayer) {
-        window.history.back();
-      }
-    };
+    const layer: Layer = { id: ++seq, dismiss };
+    openLayer(layer);
+    return () => closeLayer(layer.id);
   }, [open, dismiss]);
 }
 

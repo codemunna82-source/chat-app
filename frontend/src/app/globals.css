@@ -684,3 +684,56 @@ html.dark .wa-shimmer::after {
   content-visibility: auto;
   contain-intrinsic-size: auto 56px;
 }
+
+/* The report sheet rising from the bottom edge, and the tick that lands
+ * once it has been submitted. Both are short: a confirmation that takes
+ * half a second to appear reads as the request still being in flight. */
+.wa-sheet-enter {
+  animation: wa-sheet-enter 190ms cubic-bezier(0.22, 0.75, 0.3, 1);
+}
+
+@keyframes wa-sheet-enter {
+  from {
+    transform: translateY(14%);
+    opacity: 0.4;
+  }
+}
+
+.wa-receipt-pop {
+  animation: wa-receipt-pop 320ms cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+
+@keyframes wa-receipt-pop {
+  from {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+}
+
+/* The reported message, still in the thread behind the sheet. The ring
+ * says which one the form is talking about without moving it or hiding
+ * everything else, so the surrounding conversation stays readable — which
+ * is most of what makes a report checkable. */
+.wa-highlighted {
+  animation: wa-highlight-in 240ms ease-out;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px var(--wa-accent),
+    0 0 0 7px color-mix(in srgb, var(--wa-accent) 22%, transparent);
+}
+
+@keyframes wa-highlight-in {
+  from {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--wa-accent) 0%, transparent),
+      0 0 0 14px color-mix(in srgb, var(--wa-accent) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-sheet-enter,
+  .wa-receipt-pop,
+  .wa-highlighted {
+    animation: none;
+  }
+}

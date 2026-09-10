@@ -199,3 +199,73 @@ export function VerifiedIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function LocationIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 21.2s7-5.6 7-11a7 7 0 1 0-14 0c0 5.4 7 11 7 11z" />
+      <circle cx="12" cy="10" r="2.6" />
+    </svg>
+  );
+}
+
+/**
+ * The crosshair on the "use my current location" button. Distinct from the
+ * pin: the pin means "a place", this means "find where I am now", and the
+ * two sit next to each other in the sheet.
+ */
+export function CrosshairIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden>
+      <circle cx="12" cy="12" r="6.4" />
+      <circle cx="12" cy="12" r="2.2" fill="currentColor" stroke="none" />
+      <path d="M12 2.4v3.2M12 18.4v3.2M2.4 12h3.2M18.4 12h3.2" />
+    </svg>
+  );
+}
+
+export function BlockIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" aria-hidden>
+      <circle cx="12" cy="12" r="8.8" />
+      <path d="M5.8 5.8l12.4 12.4" />
+    </svg>
+  );
+}
+
+export function FlagIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5.4 21.2V3.4" />
+      <path d="M5.4 4.2h12.4l-2.4 4 2.4 4H5.4z" fill="currentColor" fillOpacity="0.16" />
+    </svg>
+  );
+}
+
+/** The tick inside the confirmation panel's disc — heavier than a message tick. */
+export function CheckIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={2.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M5 12.6l4.6 4.6L19 7.8" />
+    </svg>
+  );
+}
+
+export function ShieldIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M12 2.8l7 2.6v5.4c0 4.4-2.9 8.3-7 10.4-4.1-2.1-7-6-7-10.4V5.4z" />
+      <path d="M9 12.2l2.1 2.1L15.2 10" />
+    </svg>
+  );
+}
+
+export function MoreIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="currentColor" aria-hidden>
+      <circle cx="12" cy="5" r="1.9" />
+      <circle cx="12" cy="12" r="1.9" />
+      <circle cx="12" cy="19" r="1.9" />
+    </svg>
+  );
+}

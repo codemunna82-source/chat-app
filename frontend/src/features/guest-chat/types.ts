@@ -13,6 +13,16 @@ export interface GuestMessage {
   replyTo?: { id: string; from: 'me' | 'business'; preview: string };
   /** Emoji reactions on this message. */
   reactions?: { emoji: string; mine: boolean }[];
+  /** Present on `type: 'location'` — where to draw the pin. */
+  location?: GuestLocation;
+}
+
+/** A shared place. `name` and `address` are absent for a raw browser fix. */
+export interface GuestLocation {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
 }
 
 /**
@@ -39,7 +49,26 @@ export interface GuestSession {
   verifiedByWhatsApp?: boolean;
   /** The business's WhatsApp number, for the customer to check against the thread the link came from. */
   businessPhone?: string;
+  /**
+   * Whether the customer has blocked this chat.
+   *
+   * Comes back on every session load, not only from the tap that set it:
+   * the state outlives the tab, and someone returning a week later has to
+   * find the window as they left it, with Unblock where they can see it.
+   */
+  blocked?: boolean;
 }
+
+/** The reasons the report sheet offers, in the order it offers them. */
+export const REPORT_REASONS = [
+  { value: 'SPAM', label: 'Spam' },
+  { value: 'SCAM_OR_FRAUD', label: 'Scam or fraud' },
+  { value: 'OFFENSIVE', label: 'Offensive content' },
+  { value: 'NOT_THE_BUSINESS', label: 'Not the business it claims to be' },
+  { value: 'OTHER', label: 'Something else' },
+] as const;
+
+export type ReportReason = (typeof REPORT_REASONS)[number]['value'];
 
 /**
  * The socket payload the backend already emits for every new message
@@ -59,6 +88,7 @@ export interface RealtimeMessage {
   /** Present when the server's realtime payload carries them; older builds send neither. */
   replyTo?: { id: string; from: 'me' | 'business'; preview: string };
   reactions?: { emoji: string; mine: boolean }[];
+  location?: GuestLocation;
 }
 
 export function realtimeToGuestMessage(m: RealtimeMessage): GuestMessage {
@@ -72,5 +102,6 @@ export function realtimeToGuestMessage(m: RealtimeMessage): GuestMessage {
     createdAt: m.createdAt,
     replyTo: m.replyTo,
     reactions: m.reactions,
+    location: m.location,
   };
 }

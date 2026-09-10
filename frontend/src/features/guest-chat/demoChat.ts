@@ -29,6 +29,7 @@ export const DEMO_SESSION: GuestSession = {
   // getGuestSessionView on the server, where it is read rather than set.
   verifiedByWhatsApp: true,
   businessPhone: '+91 91539 50934',
+  blocked: false,
 };
 
 /**
@@ -130,9 +131,26 @@ export function demoMessages(): ThreadMessage[] {
       id: 'demo-8',
       from: 'me',
       type: 'text',
-      text: 'Great, thank you! 🙏',
+      text: 'Great, thank you! 🙏 Where should I collect it from?',
       hasMedia: false,
       createdAt: ago(9),
+    },
+    {
+      // A named place rather than bare coordinates, because that is the
+      // half of the location card the demo can otherwise never show — a
+      // browser's own fix has no name and no address attached to it.
+      id: 'demo-9',
+      from: 'business',
+      type: 'location',
+      text: 'Our shop (12.934500, 77.610100)',
+      hasMedia: false,
+      createdAt: ago(8),
+      location: {
+        latitude: 12.9345,
+        longitude: 77.6101,
+        name: 'Our shop',
+        address: '4th Block, Koramangala, Bengaluru 560034',
+      },
     },
   ];
 }
@@ -147,7 +165,7 @@ export function demoMessages(): ThreadMessage[] {
  */
 const DEMO_REPLIES = [
   'This is the demo chat — nobody is really on the other end 🙂 In the live window your reply would reach the business’s inbox instantly.',
-  'Still the demo. Try the emoji tray, or send a photo with the + button.',
+  'Still the demo. Try the + button for the gallery, camera and location tray.',
   'Everything here is local to your browser: nothing is stored and nothing is sent.',
 ];
 
