@@ -12,7 +12,7 @@ import { AuthGlassShell } from '@/components/auth/AuthGlassShell';
 import { formatAuthNetworkError } from '@/lib/formatAuthNetworkError';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -25,7 +25,10 @@ export default function LoginPage() {
     setError('');
 
     try {
-      const { data } = await api.post('/users/login', { email, password });
+      // /auth/login, not /users/login — the latter is not a route the
+      // backend has ever had, so this form could never have signed anyone
+      // in. Corrected here rather than left as a second thing to discover.
+      const { data } = await api.post('/auth/login', { identifier, password });
       setUser(data);
       router.push('/');
     } catch (err: unknown) {
@@ -56,17 +59,23 @@ export default function LoginPage() {
         ) : null}
 
         <div className="space-y-1.5">
-          <label htmlFor="login-email" className="text-xs font-semibold uppercase tracking-wide text-muted">
-            Email
+          <label htmlFor="login-identifier" className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Phone number
           </label>
           <Input
-            id="login-email"
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="name@example.com"
+            id="login-identifier"
+            // tel, not email: the field takes a phone number. type="email"
+            // would have the browser refuse the form on a valid number.
+            type="tel"
+            inputMode="tel"
+            value={identifier}
+            onChange={(e) => setIdentifier(e.target.value)}
+            // The country code is what makes the number unambiguous, and
+            // the placeholder is the only place that gets said before
+            // someone types the wrong thing and is told no.
+            placeholder="+91 98765 43210"
             required
-            autoComplete="email"
+            autoComplete="tel"
           />
         </div>
 
