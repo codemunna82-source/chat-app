@@ -15,6 +15,7 @@ import {
 } from '@/lib/voxo';
 import { MemberForm } from '@/components/admin/MemberForm';
 import { MemberRow } from '@/components/admin/MemberRow';
+import { NumberSetup } from '@/components/admin/NumberSetup';
 
 /**
  * User management, on the web.
@@ -34,6 +35,18 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [inviting, setInviting] = useState(false);
+  /**
+   * Whether the number panel is open.
+   *
+   * Opens by itself the moment a user is created, because that is the
+   * next thing that has to happen and the only moment anyone is thinking
+   * about it: an account with nobody's number attached cannot send or
+   * receive anything, and an admin who closes the page here comes back a
+   * week later wondering why the inbox is empty. Also opens on its own
+   * when the workspace has no number at all, which is the same problem
+   * one step earlier.
+   */
+  const [showNumbers, setShowNumbers] = useState(false);
 
   useEffect(() => hydrate(), [hydrate]);
 
@@ -53,6 +66,9 @@ export default function AdminPage() {
       ]);
       setMembers(rows);
       setNumbers(nums);
+      // Nothing connected means nothing works. Say so on arrival rather
+      // than waiting to be asked.
+      if (nums.length === 0) setShowNumbers(true);
     } catch (err) {
       if (err instanceof VoxoError && err.status === 401) {
         router.replace('/login');
@@ -138,14 +154,21 @@ export default function AdminPage() {
             Sign out
           </Button>
           {isAdmin ? (
-            <Button
-              onClick={() => {
-                setEditing(null);
-                setInviting(true);
-              }}
-            >
-              Add user
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => setShowNumbers((v) => !v)}>
+                {numbers.length > 0
+                  ? `WhatsApp numbers (${numbers.length})`
+                  : 'Connect a number'}
+              </Button>
+              <Button
+                onClick={() => {
+                  setEditing(null);
+                  setInviting(true);
+                }}
+              >
+                Add user
+              </Button>
+            </>
           ) : null}
         </div>
       </header>
@@ -170,13 +193,19 @@ export default function AdminPage() {
             setInviting(false);
             setEditing(null);
           }}
-          onSaved={async () => {
+          onSaved={async (created) => {
             setInviting(false);
             setEditing(null);
             await load();
+            // Straight on to the number after a NEW user — see showNumbers.
+            // Not after an edit: nothing about changing someone's expiry
+            // date means their workspace needs a number connected.
+            if (created) setShowNumbers(true);
           }}
         />
       ) : null}
+
+      {isAdmin && showNumbers ? <NumberSetup numbers={numbers} onChanged={load} /> : null}
 
       <section className="mt-8">
         {members === null ? (

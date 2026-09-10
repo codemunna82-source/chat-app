@@ -22,7 +22,9 @@ export function MemberForm({
   member: TeamMember | null;
   numbers: WhatsAppNumber[];
   onClose: () => void;
-  onSaved: () => void | Promise<void>;
+  /** `created` distinguishes a new account from an edit — the caller opens the
+   *  number panel for the first and not the second. */
+  onSaved: (created: boolean) => void | Promise<void>;
 }) {
   const isEdit = member !== null;
 
@@ -84,7 +86,7 @@ export function MemberForm({
           whatsappPhoneNumberId: numberId || undefined,
         });
       }
-      await onSaved();
+      await onSaved(!isEdit);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not save that.');
     } finally {

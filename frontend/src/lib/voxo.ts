@@ -35,11 +35,61 @@ export interface TeamMember extends VoxoUser {
   updatedAt: string;
 }
 
+export interface NumberHealth {
+  level: string;
+  headline: string;
+  detail: string;
+  stale: boolean;
+}
+
 export interface WhatsAppNumber {
   id: string;
+  /**
+   * Meta's own phone_number_id.
+   *
+   * Safe to show: it is an account identifier, not a credential. The
+   * access token it gets used with never leaves the server.
+   */
   phoneNumberId: string;
   displayPhoneNumber: string;
   status: string;
+  qualityRating?: string;
+  messagingLimitTier?: string;
+  healthCheckedAt?: string;
+  health?: NumberHealth;
+}
+
+/**
+ * What the server has been given, without any of the values.
+ *
+ * Read before the registration form is used rather than after it fails:
+ * "Meta refused the registration" is a dead end when the real answer is
+ * that nobody set the PIN. Lengths and booleans only — the endpoint is
+ * deliberately built never to echo a secret.
+ */
+export interface MetaConfigHealth {
+  callbackUrl: string | null;
+  verifyTokenConfigured: boolean;
+  appSecretConfigured: boolean;
+  accessTokenConfigured: boolean;
+  registerPinConfigured: boolean;
+  mockMode: boolean;
+  queueMode: string;
+}
+
+export async function fetchMetaConfigHealth(): Promise<MetaConfigHealth | null> {
+  try {
+    // Unauthenticated on the server by design — it exists to be curled at
+    // a fresh deployment before anyone can sign in — so it goes out
+    // without the Bearer header rather than through request().
+    const res = await fetch(`${baseUrl()}/webhooks/meta/health`);
+    if (!res.ok) return null;
+    const body = (await res.json()) as { data: MetaConfigHealth };
+    return body.data;
+  } catch {
+    // Never fatal. The form still works; it just cannot warn in advance.
+    return null;
+  }
 }
 
 function baseUrl(): string {
@@ -101,7 +151,7 @@ async function refreshAccessToken(): Promise<string | null> {
   return refreshing;
 }
 
-async function send<T>(path: string, init: RequestInit, token: string | null): Promise<Response> {
+async function send(path: string, init: RequestInit, token: string | null): Promise<Response> {
   return fetch(`${baseUrl()}${path}`, {
     ...init,
     headers: {
@@ -116,7 +166,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   const session = readSession();
   let res: Response;
   try {
-    res = await send<T>(path, init, session?.accessToken ?? null);
+    res = await send(path, init, session?.accessToken ?? null);
   } catch {
     throw new VoxoError('Could not reach the server. Check your connection and try again.');
   }
@@ -127,7 +177,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (res.status === 401 && session?.refreshToken) {
     const fresh = await refreshAccessToken();
     if (fresh) {
-      res = await send<T>(path, init, fresh);
+      res = await send(path, init, fresh);
     } else {
       clearSession();
       throw new VoxoError('Your session has expired. Sign in again.', 401);
@@ -222,4 +272,38 @@ export function disableMember(id: string): Promise<unknown> {
 
 export function listWhatsAppNumbers(): Promise<WhatsAppNumber[]> {
   return request<WhatsAppNumber[]>('/whatsapp/numbers');
+}
+
+/**
+ * Step one: tell VOXO the number exists.
+ *
+ * The id is checked against Meta before anything is stored, so a typo
+ * fails here — naming the problem — rather than at 3am inside a send.
+ */
+export function addWhatsAppNumber(phoneNumberId: string, wabaId?: string): Promise<WhatsAppNumber> {
+  return request<WhatsAppNumber>('/whatsapp/numbers', {
+    method: 'POST',
+    body: JSON.stringify({ phoneNumberId, wabaId: wabaId || undefined }),
+  });
+}
+
+/**
+ * Step two: register it for the Cloud API — Meta's POST /{id}/register,
+ * the call that takes the six-digit PIN.
+ *
+ * The PIN and the access token are the server's, not the browser's. Meta
+ * treats that PIN as the number's two-step verification code and it must
+ * stay the same forever, so it lives in one place as configuration rather
+ * than being retyped into a form where a different value each time would
+ * quietly break re-registration.
+ *
+ * Safe to repeat: Meta's "already registered" comes back as success.
+ */
+export function registerNumberForCloudApi(
+  id: string,
+): Promise<{ registered: boolean; message: string }> {
+  return request<{ registered: boolean; message: string }>(
+    `/whatsapp/numbers/${id}/register`,
+    { method: 'POST' },
+  );
 }
