@@ -212,7 +212,7 @@ export function ReportSheet({
               )}
 
               {error && (
-                <p className="mt-3 rounded-[10px] bg-red-500/10 px-3.5 py-2.5 text-[13.5px] leading-[19px] text-red-600">
+                <p className="mt-3 rounded-[10px] bg-[var(--wa-danger)]/10 px-3.5 py-2.5 text-[13.5px] leading-[19px] text-[var(--wa-danger)]">
                   {error}
                 </p>
               )}

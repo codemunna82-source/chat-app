@@ -440,6 +440,11 @@ html.dark .glass-liquid {
   --wa-hover: rgba(11, 20, 26, 0.05);
   --wa-bubble-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
   --wa-panel-shadow: 0 2px 5px rgba(11, 20, 26, 0.16);
+  /* Text-weight red. The solid #e0483d that fills the submit button is
+   * legible on either ground because it carries white text; the same red
+   * as TEXT is too dark to read on the dark wallpaper, so the two themes
+   * need different values. */
+  --wa-danger: #c53a30;
 }
 
 html.dark .wa {
@@ -467,6 +472,7 @@ html.dark .wa {
   --wa-hover: rgba(233, 237, 239, 0.07);
   --wa-bubble-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.38);
   --wa-panel-shadow: 0 2px 5px rgba(11, 20, 26, 0.4);
+  --wa-danger: #f26d62;
 }
 
 /* The app sets a display face on headings and the browser gives form

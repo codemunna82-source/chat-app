@@ -50,6 +50,7 @@ import { VoiceBubble } from './VoiceBubble';
 import { LocationBubble } from './LocationBubble';
 import { AttachSheet } from './AttachSheet';
 import { ReportSheet, type ReportIntent } from './ReportSheet';
+import { SafetyRow } from './SafetyRow';
 import { canRecordAudio, useVoiceRecorder } from './useVoiceRecorder';
 import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
 import { uploadVoiceNote } from './guestApi';
@@ -310,6 +311,19 @@ export default function GuestChatWindow({ token }: { token: string }) {
    */
   const messagesRef = useRef<ThreadMessage[]>([]);
   messagesRef.current = messages;
+  /**
+   * The transcript's inner wrapper, and synchronous mirrors of the two
+   * flags the resize observer has to consult.
+   *
+   * The observer is created once, so a value it closed over at that moment
+   * would be the value from the first render forever — which for atBottom
+   * means "true", and would re-pin the view under someone reading history.
+   */
+  const contentRef = useRef<HTMLDivElement | null>(null);
+  const atBottomRef = useRef(true);
+  atBottomRef.current = atBottom;
+  const loadingOlderRef = useRef(false);
+  loadingOlderRef.current = loadingOlder;
   /**
    * The gesture in progress.
    *
@@ -670,6 +684,43 @@ export default function GuestChatWindow({ token }: { token: string }) {
     if (loadingOlder || !atBottom) return;
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages.length, loadingOlder, atBottom, agentTyping, emojiOpen]);
+
+  /**
+   * Keeps the view pinned to the bottom while content grows underneath it.
+   *
+   * The effect above fires on the message list changing, which is the
+   * wrong moment for anything whose height is not known until later — a
+   * photo, most of all. The bubble is laid out at nearly zero height, the
+   * scroll lands on it, and the image then decodes and pushes several
+   * hundred pixels of thread below the fold. What the customer sees is a
+   * chat that opened halfway up, on a message from an hour ago.
+   *
+   * A ResizeObserver on the content catches every such growth — decoded
+   * images, a wrapped line after a font swap, anything a later change adds
+   * — and only re-pins while the customer is already at the bottom, so it
+   * can never yank someone who has scrolled up to read.
+   */
+  useEffect(() => {
+    const content = contentRef.current;
+    if (phase !== 'ready' || !content || typeof ResizeObserver === 'undefined') return;
+
+    let first = true;
+    const observer = new ResizeObserver(() => {
+      // The observer's own first call reports the current size rather than
+      // a change; the effect above has already handled that.
+      if (first) {
+        first = false;
+        return;
+      }
+      if (!atBottomRef.current || loadingOlderRef.current) return;
+      // 'auto', not 'smooth': this fires while things are still settling,
+      // and a smooth scroll restarted every few milliseconds never
+      // arrives.
+      bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+    });
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [phase]);
 
   /**
    * Paging waits for the opening jump to the newest message to finish.
@@ -1281,7 +1332,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
               />
               <div
                 role="menu"
-                className="absolute right-1 top-[calc(100%-2px)] z-50 w-[196px] overflow-hidden rounded-[8px] bg-[var(--wa-card)] py-1 shadow-[var(--wa-panel-shadow)]"
+                className="absolute right-1 top-[calc(100%-2px)] z-50 w-[232px] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-[8px] bg-[var(--wa-card)] py-1 shadow-[var(--wa-panel-shadow)]"
               >
                 <MenuItem
                   icon={<FlagIcon className="h-[17px] w-[17px]" />}
@@ -1290,10 +1341,14 @@ export default function GuestChatWindow({ token }: { token: string }) {
                     setReport({ message: null, intent: 'report' });
                   }}
                 >
-                  Report
+                  Report this chat
                 </MenuItem>
+                {/* The one entry here that changes something, coloured to
+                    say so. Unblock is the same switch going the other way
+                    and is not a warning, so it loses the red. */}
                 <MenuItem
                   icon={<BlockIcon className="h-[17px] w-[17px]" />}
+                  tone={blocked ? 'accent' : 'danger'}
                   onClick={() => {
                     setMenuOpen(false);
                     if (blocked) {
@@ -1303,7 +1358,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                     setReport({ message: null, intent: 'block' });
                   }}
                 >
-                  {blocked ? 'Unblock' : 'Block'}
+                  {blocked ? `Unblock ${title}` : `Block ${title}`}
                 </MenuItem>
               </div>
             </>
@@ -1372,7 +1427,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
               </span>
             </div>
           )}
-          <div className="mx-auto w-full max-w-[1100px]">
+          <div ref={contentRef} className="mx-auto w-full max-w-[1100px]">
             {/* The privacy notice, in the place the messenger puts it. The
                 wording is what is actually true here — the transport is
                 encrypted and the thread is readable only by this business —
@@ -1674,6 +1729,15 @@ export default function GuestChatWindow({ token }: { token: string }) {
             </ul>
 
             {agentTyping && <TypingBubble />}
+
+            {/* Report and Block where the conversation ends — see
+                SafetyRow for why they are not pinned above the composer. */}
+            <SafetyRow
+              blocked={blocked}
+              onReport={() => setReport({ message: null, intent: 'report' })}
+              onBlock={() => setReport({ message: null, intent: 'block' })}
+            />
+
             <div ref={bottomRef} className="h-1" />
           </div>
         </div>
@@ -1716,7 +1780,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       )}
 
       {errorText && (
-        <p className="z-10 shrink-0 bg-red-500/12 px-4 py-1.5 text-center text-[12px] font-medium text-red-600">
+        <p className="z-10 shrink-0 bg-[var(--wa-danger)]/12 px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-danger)]">
           {errorText}
         </p>
       )}
@@ -2099,20 +2163,31 @@ function MenuItem({
   children,
   icon,
   onClick,
+  tone = 'plain',
 }: {
   children: React.ReactNode;
   icon: React.ReactNode;
   onClick: () => void;
+  tone?: 'plain' | 'danger' | 'accent';
 }) {
+  const colour =
+    tone === 'danger'
+      ? 'text-[var(--wa-danger)]'
+      : tone === 'accent'
+        ? 'text-[var(--wa-accent)]'
+        : 'text-[var(--wa-text)]';
+
   return (
     <button
       type="button"
       role="menuitem"
       onClick={onClick}
-      className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-[14.5px] text-[var(--wa-text)] transition hover:bg-[var(--wa-hover)] active:bg-[var(--wa-hover)]"
+      className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-[14.5px] transition hover:bg-[var(--wa-hover)] active:bg-[var(--wa-hover)] ${colour}`}
     >
-      <span className="shrink-0 text-[var(--wa-icon)]">{icon}</span>
-      {children}
+      {/* Inherits the row's colour when the row has one, so the icon and
+          the words do not disagree about how serious this is. */}
+      <span className={`shrink-0 ${tone === 'plain' ? 'text-[var(--wa-icon)]' : ''}`}>{icon}</span>
+      <span className="truncate">{children}</span>
     </button>
   );
 }
