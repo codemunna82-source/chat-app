@@ -534,6 +534,25 @@ export default function GuestChatWindow({ token }: { token: string }) {
     s.on('connect_error', () => setConnected(false));
 
     s.on('message:new', (payload: RealtimeMessage) => {
+      // A reaction is a row in the same collection but not a message on
+      // screen. Rendered as one it became a lone emoji bubble that vanished
+      // on the next reload, because the page query leaves reaction rows
+      // out. It belongs on the message it points at.
+      if (payload.type === 'reaction') {
+        const target = payload.replyToMessageId;
+        if (!target || !payload.text) return;
+        const emoji = payload.text;
+        const mine = payload.direction === 'IN';
+        setMessages((prev) =>
+          prev.map((m) => {
+            if (m.id !== target) return m;
+            const others = (m.reactions ?? []).filter((r) => r.mine !== mine);
+            return { ...m, reactions: [...others, { emoji, mine }] };
+          }),
+        );
+        return;
+      }
+
       const incoming = realtimeToGuestMessage(payload);
       setMessages((prev) => mergeMessage(prev, incoming));
       if (incoming.from === 'business') markRead(token);
@@ -675,6 +694,11 @@ export default function GuestChatWindow({ token }: { token: string }) {
     try {
       const page = await fetchMessages(token, olderCursor);
       setMessages((prev) => [...page.items, ...prev]);
+      // Widened in the same commit as the prepend, so the one scroll
+      // correction below covers both. Left out, a fetch made at the exact
+      // moment the thread filled the window appended a page the window
+      // then sliced straight back off — a pull that visibly did nothing.
+      setRenderWindow((w) => w + page.items.length);
       setOlderCursor(page.nextCursor);
 
       requestAnimationFrame(() => {
@@ -699,10 +723,21 @@ export default function GuestChatWindow({ token }: { token: string }) {
    * a pull that visibly did nothing once the thread passed the window size.
    */
   const showOlder = useCallback(() => {
+    const container = transcriptRef.current;
+
     if (messagesRef.current.length > renderWindow) {
+      // Revealing rows above the viewport pushes everything down exactly
+      // the way fetching a page does, and needs the same correction —
+      // without it, uncovering a hundred and twenty messages threw the
+      // reader a hundred and twenty messages backwards.
+      const heightBefore = container?.scrollHeight ?? 0;
       setRenderWindow((w) => w + RENDER_WINDOW_STEP);
+      requestAnimationFrame(() => {
+        if (container) container.scrollTop += container.scrollHeight - heightBefore;
+      });
       return;
     }
+
     void loadOlder();
   }, [renderWindow, loadOlder]);
 
@@ -1344,6 +1379,14 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         {reactingTo === m.id && (
                           <div
                             data-reaction-row
+                            // The row sits inside the bubble that carries the
+                            // gestures. Without this, holding an emoji button
+                            // for longer than the press threshold re-armed the
+                            // hold, marked the gesture as acted, and the click
+                            // guard then swallowed the button's own click —
+                            // the reaction simply never happened.
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onPointerMove={(e) => e.stopPropagation()}
                             className={`absolute -top-12 z-20 flex items-center gap-1 rounded-full bg-[var(--wa-card)] px-2 py-1.5 shadow-[var(--wa-panel-shadow)] ${
                               mine ? 'right-0' : 'left-0'
                             }`}

@@ -45,14 +45,21 @@ self.addEventListener('activate', (event) => {
  * error in the worker's own console for something that was only ever an
  * optimisation.
  */
-async function store(request, response) {
-  if (!response.ok || response.redirected || response.type === 'opaque') return;
-  try {
-    const cache = await caches.open(VERSION);
-    await cache.put(request, response.clone());
-  } catch {
-    /* quota, a partial response, a redirect we did not catch — never fatal */
-  }
+function store(request, response) {
+  if (!response.ok || response.redirected || response.type === 'opaque') return null;
+
+  // Cloned here, synchronously, before this function returns and the
+  // response is handed to the page. Cloning after an await is too late:
+  // respondWith has begun reading the body by then, and clone() throws on
+  // a disturbed stream — which the catch below swallowed, so nothing was
+  // ever cached at all.
+  const copy = response.clone();
+  return caches
+    .open(VERSION)
+    .then((cache) => cache.put(request, copy))
+    .catch(() => {
+      /* quota, a partial response, a redirect we did not catch — never fatal */
+    });
 }
 
 self.addEventListener('fetch', (event) => {
@@ -75,7 +82,8 @@ self.addEventListener('fetch', (event) => {
         (hit) =>
           hit ??
           fetch(request).then((res) => {
-            event.waitUntil(store(request, res));
+            const write = store(request, res);
+            if (write) event.waitUntil(write);
             return res;
           }),
       ),
@@ -94,7 +102,8 @@ self.addEventListener('fetch', (event) => {
           // response and finishing the write — which is exactly when a
           // navigation completes, and is why the offline page could still
           // be missing after visiting the chat a dozen times.
-          event.waitUntil(store(request, res));
+          const write = store(request, res);
+          if (write) event.waitUntil(write);
           return res;
         })
         .catch(async () => {

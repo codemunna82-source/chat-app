@@ -54,6 +54,8 @@ export interface RealtimeMessage {
   text?: string;
   mediaId?: string;
   createdAt: string;
+  /** On a reaction row, the message it is attached to. */
+  replyToMessageId?: string;
   /** Present when the server's realtime payload carries them; older builds send neither. */
   replyTo?: { id: string; from: 'me' | 'business'; preview: string };
   reactions?: { emoji: string; mine: boolean }[];
