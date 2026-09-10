@@ -2,14 +2,13 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthStore } from '@/store/useAuthStore';
-import api from '@/lib/api';
+import { writeSession } from '@/store/useSession';
+import { login as voxoLogin } from '@/lib/voxo';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { MessageSquareText } from 'lucide-react';
 import { AuthGlassShell } from '@/components/auth/AuthGlassShell';
-import { formatAuthNetworkError } from '@/lib/formatAuthNetworkError';
 
 export default function LoginPage() {
   const [identifier, setIdentifier] = useState('');
@@ -17,7 +16,6 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
-  const { setUser } = useAuthStore();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,14 +23,14 @@ export default function LoginPage() {
     setError('');
 
     try {
-      // /auth/login, not /users/login — the latter is not a route the
-      // backend has ever had, so this form could never have signed anyone
-      // in. Corrected here rather than left as a second thing to discover.
-      const { data } = await api.post('/auth/login', { identifier, password });
-      setUser(data);
-      router.push('/');
+      // Through lib/voxo, not lib/api. That instance stores a token shaped
+      // for this repo's original chat scaffolding and posts to routes the
+      // VOXO backend has never had — including the /users/login this form
+      // used to call, which is why it could never sign anyone in.
+      writeSession(await voxoLogin(identifier, password));
+      router.push('/admin');
     } catch (err: unknown) {
-      setError(formatAuthNetworkError(err, api.defaults.baseURL || ''));
+      setError(err instanceof Error ? err.message : 'Could not sign in.');
     } finally {
       setIsLoading(false);
     }
@@ -44,8 +42,8 @@ export default function LoginPage() {
         <div className="rounded-full bg-primary/15 p-3.5 ring-1 ring-primary/20 shadow-lg shadow-primary/10">
           <MessageSquareText className="h-8 w-8 text-primary" />
         </div>
-        <h2 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Sign in to ChatApp</h2>
-        <p className="text-sm text-muted leading-relaxed">Welcome back! Please enter your details.</p>
+        <h2 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Sign in to VOXO</h2>
+        <p className="text-sm text-muted leading-relaxed">Use the phone number and password your workspace admin gave you.</p>
       </div>
 
       <form onSubmit={handleLogin} className="mt-8 space-y-4">
