@@ -1,10 +1,7 @@
 import type { Metadata, Viewport } from "next";
-import { Sora, Fraunces } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 
-const sora = Sora({ subsets: ["latin"], display: "swap", variable: "--font-sans" });
-const fraunces = Fraunces({ subsets: ["latin"], display: "swap", variable: "--font-display" });
 const apiHost = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace(/\/api$/, '');
 const socketHost = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
 /**
@@ -82,7 +79,13 @@ export default function RootLayout({
         {voxoHost && <link rel="preconnect" href={voxoHost} crossOrigin="anonymous" />}
       </head>
       <body
-        className={`${sora.variable} ${fraunces.variable} relative flex h-full min-h-0 flex-col bg-background font-sans text-foreground transition-colors duration-300`}
+        // The two webfont families used to be loaded here, for every route.
+        // The customer chat window sets its own system stack and uses
+        // neither, so a phone opening a link downloaded seventy kilobytes
+        // of Sora and Fraunces — preloaded, so competing with the JS it
+        // actually needed — and threw them away. They now load in the
+        // (app) layout, which is the only place they are used.
+        className="relative flex h-full min-h-0 flex-col bg-background font-sans text-foreground transition-colors duration-300"
       >
         <ThemeProvider
           attribute="class"

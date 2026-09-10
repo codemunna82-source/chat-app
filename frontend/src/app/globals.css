@@ -632,3 +632,46 @@ html.dark .wa-wall::before {
     animation: none;
   }
 }
+
+/* A placeholder with a highlight travelling across it, rather than a block
+ * that pulses. The sweep reads as loading; a fading rectangle reads as a
+ * rendering bug. */
+.wa-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(11, 20, 26, 0.07);
+}
+
+html.dark .wa-shimmer {
+  background-color: rgba(233, 237, 239, 0.08);
+}
+
+.wa-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.45),
+    transparent
+  );
+  animation: wa-shimmer 1400ms ease-in-out infinite;
+}
+
+html.dark .wa-shimmer::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+}
+
+@keyframes wa-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-shimmer::after {
+    animation: none;
+  }
+}

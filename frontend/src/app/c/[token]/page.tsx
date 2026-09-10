@@ -7,7 +7,7 @@ import GuestChatWindow from '@/features/guest-chat/GuestChatWindow';
  * is pasted into WhatsApp threads and gets forwarded, and a crawler that
  * followed one would put a real customer's chat into a search index.
  */
-export const metadata: Metadata = {
+const metadata: Metadata = {
   title: 'Chat',
   robots: { index: false, follow: false },
   // Added to the home screen, this opens chrome-less — the browser bar is
@@ -36,6 +36,19 @@ export const viewport: Viewport = {
     { media: '(prefers-color-scheme: dark)', color: '#202c33' },
   ],
 };
+
+/**
+ * The manifest is per-token, so installing from this page puts *this*
+ * conversation on the home screen — see the route it points at.
+ */
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ token: string }>;
+}): Promise<Metadata> {
+  const { token } = await params;
+  return { ...metadata, manifest: `/c/${encodeURIComponent(token)}/manifest` };
+}
 
 export default async function GuestChatPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;

@@ -16,6 +16,8 @@ import {
 } from './guestApi';
 import { useGuestCall } from './useGuestCall';
 import { EmojiPicker } from './EmojiPicker';
+import { ChatSkeleton } from './ChatSkeleton';
+import { tapFeedback, useDismissOnBack } from './useDismissOnBack';
 import {
   BackIcon,
   CameraIcon,
@@ -207,6 +209,14 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const demo = isDemoToken(token);
   /** Which canned reply comes next; a ref so answering does not re-render. */
   const demoReplyRef = useRef(0);
+
+  // Back closes the layer that is open rather than leaving the chat. Order
+  // matters only in that each hook owns its own history entry; the browser
+  // pops the most recently pushed, which is the innermost layer.
+  const closeLightbox = useCallback(() => setLightbox(null), []);
+  const closeEmoji = useCallback(() => setEmojiOpen(false), []);
+  useDismissOnBack(emojiOpen, closeEmoji);
+  useDismissOnBack(lightbox !== null, closeLightbox);
 
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
   const call = useGuestCall(socket, loadIce, { demo });
@@ -410,6 +420,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
     setSending(true);
     setDraft('');
     setEmojiOpen(false);
+    tapFeedback();
     setAtBottom(true);
     setMessages((prev) => [...prev, optimistic]);
     stopTyping();
@@ -506,7 +517,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const startRecording = useCallback(async () => {
     setEmojiOpen(false);
     const started = await recorder.start();
-    if (started) return;
+    if (started) {
+      // Longer than a send: the customer needs to know recording began
+      // without looking, because they are about to start talking.
+      tapFeedback(18);
+      return;
+    }
 
     flashRef.current?.(
       recorder.error === 'denied'
@@ -598,14 +614,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
     [title],
   );
 
-  if (phase === 'loading') {
-    return (
-      <Screen>
-        <div className="h-10 w-10 animate-spin rounded-full border-[3px] border-[var(--wa-accent)]/25 border-t-[var(--wa-accent)]" />
-        <p className="text-sm text-[var(--wa-meta)]">Opening your chat…</p>
-      </Screen>
-    );
-  }
+  if (phase === 'loading') return <ChatSkeleton />;
 
   if (phase === 'invalid') {
     return (
