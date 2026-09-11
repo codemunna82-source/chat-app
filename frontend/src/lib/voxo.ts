@@ -264,6 +264,20 @@ export function updateMember(id: string, patch: UpdateMemberInput): Promise<Team
   return request<TeamMember>(`/users/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
+/**
+ * An admin setting a new password for someone.
+ *
+ * Its own call rather than a field on updateMember, mirroring the server:
+ * the PATCH route records its whole body in the audit log, so a password
+ * does not go through it.
+ */
+export function resetMemberPassword(id: string, password: string): Promise<TeamMember> {
+  return request<TeamMember>(`/users/${id}/password`, {
+    method: 'POST',
+    body: JSON.stringify({ password }),
+  });
+}
+
 export function disableMember(id: string): Promise<unknown> {
   return request(`/users/${id}`, { method: 'DELETE' });
 }

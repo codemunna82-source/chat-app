@@ -3,7 +3,14 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { createMember, updateMember, type TeamMember, type WhatsAppNumber } from '@/lib/voxo';
+import {
+  createMember,
+  updateMember,
+  resetMemberPassword,
+  type TeamMember,
+  type WhatsAppNumber,
+} from '@/lib/voxo';
+import { useSession } from '@/store/useSession';
 import { DEFAULT_PERMISSIONS, PERMISSION_GROUPS } from './permissions';
 
 /** A year out — long enough not to be busywork, short enough to be a real expiry. */
@@ -27,6 +34,10 @@ export function MemberForm({
   onSaved: (created: boolean) => void | Promise<void>;
 }) {
   const isEdit = member !== null;
+  // Resetting your own password revokes your own sessions too, so the hint
+  // has to say so — an admin who does it and is then signed out without
+  // warning reads it as the app breaking.
+  const isSelf = useSession((s) => s.session?.user.id) === member?.id;
 
   const [phone, setPhone] = useState(member?.phone ?? '');
   const [email, setEmail] = useState(member?.email ?? '');
@@ -64,6 +75,10 @@ export function MemberForm({
 
     try {
       if (isEdit) {
+        // The password goes on its own request, and last: if the reset
+        // fails, the rest of the edit has still been saved, and the error
+        // below names the one part that did not land rather than implying
+        // the whole form was lost.
         await updateMember(member.id, {
           // Only when it changed. Sending the same number back would make
           // the server check it against the uniqueness index for no reason.
@@ -74,6 +89,18 @@ export function MemberForm({
           displayName: displayName.trim() || undefined,
           whatsappPhoneNumberId: numberId || null,
         });
+        if (password.length >= 8) {
+          try {
+            await resetMemberPassword(member.id, password);
+          } catch (err) {
+            setError(
+              `Everything else was saved, but the password was not: ${
+                err instanceof Error ? err.message : 'the server refused it'
+              }`,
+            );
+            return;
+          }
+        }
       } else {
         await createMember({
           phone: phone.trim(),
@@ -94,7 +121,12 @@ export function MemberForm({
     }
   }
 
-  const canSubmit = isEdit || (phone.trim() && email.trim() && password.length >= 8);
+  // A blank password on an edit means "don't touch it"; a short one is a
+  // typo worth catching before the server rejects it.
+  const passwordTooShort = isEdit && password.length > 0 && password.length < 8;
+  const canSubmit = isEdit
+    ? !passwordTooShort
+    : Boolean(phone.trim() && email.trim() && password.length >= 8);
 
   return (
     <form
@@ -166,7 +198,26 @@ export function MemberForm({
               />
             </Field>
           </>
-        ) : null}
+        ) : (
+          <Field
+            label="New password"
+            hint={
+              isSelf
+                ? 'Leave blank to keep the current one. Changing it signs you out everywhere, including here.'
+                : 'Leave blank to keep the current one. Setting it signs them out of every device.'
+            }
+          >
+            <Input
+              id="member-password"
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Leave blank to keep the current one"
+              autoComplete="off"
+              minLength={8}
+            />
+          </Field>
+        )}
 
         <Field label="Role">
           <select
