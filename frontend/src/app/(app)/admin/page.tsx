@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { clearSession, useSession } from '@/store/useSession';
@@ -79,14 +79,40 @@ export default function AdminPage() {
     }
   }, [router]);
 
+  /**
+   * Guards the opening load against running twice — and, before it was
+   * here, against running forever.
+   *
+   * The effect below depended on `session`, and fetchMe() wrote a NEW
+   * session object back into the store on every success. A new object is
+   * a new reference, which changed the dependency, which re-ran the
+   * effect, which called fetchMe() again: /auth/me, /users and
+   * /whatsapp/numbers on a loop for as long as the page stayed open.
+   *
+   * A ref rather than tidier dependencies because it cannot be defeated
+   * by a future one: whatever else changes, the bootstrap runs once.
+   */
+  const bootstrapped = useRef(false);
+
   useEffect(() => {
-    if (!session) return;
+    if (!session || bootstrapped.current) return;
+    bootstrapped.current = true;
     void load();
     // Re-reads the role from the server rather than trusting what login
     // cached: an admin demoted since they signed in would otherwise keep
     // the admin screen until they happened to sign out.
     void fetchMe()
-      .then((me) => useSession.setState((s) => (s.session ? { session: { ...s.session, user: me } } : s)))
+      .then((me) =>
+        useSession.setState((s) => {
+          if (!s.session) return s;
+          // Nothing to write when nothing changed. Replacing the object
+          // with an identical copy re-renders every subscriber for no
+          // reason, and it is what turned one stale-role check into a
+          // request loop.
+          if (JSON.stringify(s.session.user) === JSON.stringify(me)) return s;
+          return { session: { ...s.session, user: me } };
+        }),
+      )
       .catch(() => {});
   }, [session, load]);
 
