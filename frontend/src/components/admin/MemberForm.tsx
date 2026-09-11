@@ -83,6 +83,9 @@ export function MemberForm({
           // Only when it changed. Sending the same number back would make
           // the server check it against the uniqueness index for no reason.
           ...(phone.trim() && phone.trim() !== member.phone ? { phone: phone.trim() } : {}),
+          ...(email.trim() && email.trim().toLowerCase() !== member.email.toLowerCase()
+            ? { email: email.trim() }
+            : {}),
           role,
           permissions: role === 'MASTER_ADMIN' ? [] : permissions,
           validUntil: expiry,
@@ -125,7 +128,7 @@ export function MemberForm({
   // typo worth catching before the server rejects it.
   const passwordTooShort = isEdit && password.length > 0 && password.length < 8;
   const canSubmit = isEdit
-    ? !passwordTooShort
+    ? Boolean(email.trim()) && !passwordTooShort
     : Boolean(phone.trim() && email.trim() && password.length >= 8);
 
   return (
@@ -138,7 +141,9 @@ export function MemberForm({
           {isEdit ? `Edit ${member.displayName || member.phone || member.email}` : 'Add a user'}
         </h2>
         <p className="text-[12.5px] text-muted">
-          {isEdit ? 'The email cannot be changed.' : 'They sign in with the phone number.'}
+          {isEdit
+            ? 'They sign in with the phone number, or the email if the number is not set.'
+            : 'They sign in with the phone number.'}
         </p>
       </div>
 
@@ -172,32 +177,33 @@ export function MemberForm({
           />
         </Field>
 
-        {!isEdit ? (
-          <>
-            <Field label="Email" hint="For the account record">
-              <Input
-                id="member-email"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="priya@company.com"
-                autoComplete="off"
-                required
-              />
-            </Field>
+        <Field label="Email" hint="The other thing they can sign in with">
+          <Input
+            id="member-email"
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="priya@company.com"
+            autoComplete="off"
+            required
+          />
+        </Field>
 
-            <Field label="Temporary password" hint="At least 8 characters — hand it over, then have them change it">
-              <Input
-                id="member-password"
-                type="text"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                autoComplete="off"
-                required
-                minLength={8}
-              />
-            </Field>
-          </>
+        {!isEdit ? (
+          <Field
+            label="Temporary password"
+            hint="At least 8 characters — hand it over, then have them change it"
+          >
+            <Input
+              id="member-password"
+              type="text"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              autoComplete="off"
+              required
+              minLength={8}
+            />
+          </Field>
         ) : (
           <Field
             label="New password"

@@ -252,6 +252,7 @@ export function createMember(input: CreateMemberInput): Promise<TeamMember> {
 
 export interface UpdateMemberInput {
   phone?: string;
+  email?: string;
   role?: 'MASTER_ADMIN' | 'SUB_USER';
   permissions?: string[];
   validUntil?: string;
