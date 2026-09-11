@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { writeSession } from '@/store/useSession';
 import { login as voxoLogin } from '@/lib/voxo';
+import { describeIdentifierProblem } from '@/lib/loginIdentifier';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -19,6 +20,15 @@ export default function LoginPage() {
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    // Checked before the request, not after: a number with no country
+    // code reaches the server as a valid number in another country, and
+    // the only answer it can honestly give back is "invalid password".
+    const problem = describeIdentifierProblem(identifier);
+    if (problem) {
+      setError(problem);
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
