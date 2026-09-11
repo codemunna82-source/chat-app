@@ -287,7 +287,12 @@ export function disableMember(id: string): Promise<unknown> {
 
 export interface AutoGuestLink {
   enabled: boolean;
-  message: string;
+  /** The approved WhatsApp template's name, as it appears in WhatsApp Manager. */
+  templateName: string;
+  /** Meta's language code for the approved copy, e.g. "en" or "en_US". */
+  templateLanguage: string;
+  /** What fills the template body's {{1}}, when it has one. */
+  bodyVariable: 'none' | 'customer_name';
 }
 
 export interface TenantSettings {
@@ -295,6 +300,8 @@ export interface TenantSettings {
   autoGuestLink: AutoGuestLink;
   /** False means the server has no GUEST_LINK_BASE_URL, so there is no link to send. */
   guestLinkConfigured: boolean;
+  /** The exact URL to paste into the template's button in WhatsApp Manager. */
+  guestLinkUrlPattern: string | null;
 }
 
 export function fetchTenantSettings(): Promise<TenantSettings> {
@@ -303,7 +310,9 @@ export function fetchTenantSettings(): Promise<TenantSettings> {
 
 export function updateAutoGuestLink(input: {
   enabled: boolean;
-  message?: string;
+  templateName?: string;
+  templateLanguage?: string;
+  bodyVariable?: 'none' | 'customer_name';
 }): Promise<AutoGuestLink> {
   return request<AutoGuestLink>('/tenant/settings/auto-guest-link', {
     method: 'PATCH',
