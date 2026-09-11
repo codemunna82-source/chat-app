@@ -283,6 +283,34 @@ export function disableMember(id: string): Promise<unknown> {
   return request(`/users/${id}`, { method: 'DELETE' });
 }
 
+/* ── Workspace settings ───────────────────────────────────────────── */
+
+export interface AutoGuestLink {
+  enabled: boolean;
+  message: string;
+}
+
+export interface TenantSettings {
+  name: string;
+  autoGuestLink: AutoGuestLink;
+  /** False means the server has no GUEST_LINK_BASE_URL, so there is no link to send. */
+  guestLinkConfigured: boolean;
+}
+
+export function fetchTenantSettings(): Promise<TenantSettings> {
+  return request<TenantSettings>('/tenant/settings');
+}
+
+export function updateAutoGuestLink(input: {
+  enabled: boolean;
+  message?: string;
+}): Promise<AutoGuestLink> {
+  return request<AutoGuestLink>('/tenant/settings/auto-guest-link', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
 /* ── WhatsApp numbers, for the assignment dropdown ────────────────── */
 
 export function listWhatsAppNumbers(): Promise<WhatsAppNumber[]> {

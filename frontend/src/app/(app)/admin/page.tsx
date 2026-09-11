@@ -16,6 +16,7 @@ import {
 import { MemberForm } from '@/components/admin/MemberForm';
 import { MemberRow } from '@/components/admin/MemberRow';
 import { NumberSetup } from '@/components/admin/NumberSetup';
+import { AutoReplySetup } from '@/components/admin/AutoReplySetup';
 
 /**
  * User management, on the web.
@@ -232,6 +233,8 @@ export default function AdminPage() {
       ) : null}
 
       {isAdmin && showNumbers ? <NumberSetup numbers={numbers} onChanged={load} /> : null}
+
+      {isAdmin ? <AutoReplySetup /> : null}
 
       <section className="mt-8">
         {members === null ? (
