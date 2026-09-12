@@ -15,36 +15,54 @@
 
 /* Default = light (next-themes adds html.dark / html.light) — web-first mesh + glass tokens */
 :root,
+/*
+ * Green, because the product lives inside WhatsApp.
+ *
+ * #25d366 is WhatsApp's own brand green and is already used in the guest
+ * chat window's send button and verified badge — matching it here means a
+ * customer who taps through from WhatsApp does not cross a colour change
+ * on the way. The deeper #128c7e carries the interactive states: the
+ * bright green is too light to sit under white text at the contrast this
+ * needs, so it stays a highlight and the teal does the work.
+ */
 html.light {
-  --background: #eef2ff;
-  --foreground: #161022;
+  --background: #f0f5f2;
+  --foreground: #0b1a14;
   --surface: #ffffff;
-  --surface-hover: #e8ecff;
-  --border: #d4d8ec;
-  --primary: #6366f1;
-  --primary-hover: #818cf8;
-  --muted: #5c5678;
-  --accent: #f472b6;
-  --accent-2: #22d3ee;
-  --mesh-a: color-mix(in srgb, #6366f1 22%, transparent);
-  --mesh-b: color-mix(in srgb, #a855f7 18%, transparent);
-  --mesh-c: color-mix(in srgb, #22d3ee 14%, transparent);
+  --surface-hover: #e4f0e9;
+  --border: #ccdfd5;
+  --primary: #128c7e;
+  --primary-hover: #25d366;
+  --muted: #55705f;
+  --accent: #25d366;
+  --accent-2: #34b7f1;
+  --mesh-a: color-mix(in srgb, #25d366 22%, transparent);
+  --mesh-b: color-mix(in srgb, #128c7e 18%, transparent);
+  --mesh-c: color-mix(in srgb, #34b7f1 12%, transparent);
 }
 
+/*
+ * Dark takes the BRIGHT green as primary and the teal as the hover, the
+ * reverse of light. On a near-black ground #128c7e reads as a muddy
+ * grey-green and fails contrast against the body text; #25d366 is what
+ * stays legible. The pair is swapped rather than re-picked so both themes
+ * keep the same two colours and the brand does not change with the
+ * system setting.
+ */
 html.dark {
-  --background: #0a0910;
-  --foreground: #f1f0ff;
-  --surface: #14121f;
-  --surface-hover: #1e1b2e;
-  --border: #2a2740;
-  --primary: #818cf8;
-  --primary-hover: #a5b4fc;
-  --muted: #9d97b8;
-  --accent: #f472b6;
-  --accent-2: #22d3ee;
-  --mesh-a: color-mix(in srgb, #6366f1 28%, transparent);
-  --mesh-b: color-mix(in srgb, #7c3aed 22%, transparent);
-  --mesh-c: color-mix(in srgb, #0ea5e9 16%, transparent);
+  --background: #0a1410;
+  --foreground: #e9f5ee;
+  --surface: #11201a;
+  --surface-hover: #1a2f26;
+  --border: #244034;
+  --primary: #25d366;
+  --primary-hover: #4ae082;
+  --muted: #8fae9d;
+  --accent: #25d366;
+  --accent-2: #34b7f1;
+  --mesh-a: color-mix(in srgb, #25d366 26%, transparent);
+  --mesh-b: color-mix(in srgb, #128c7e 22%, transparent);
+  --mesh-c: color-mix(in srgb, #0e7490 14%, transparent);
 }
 
 html {

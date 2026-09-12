@@ -6,8 +6,11 @@ import { NextResponse, type NextRequest } from 'next/server';
  * This build is published for one audience: someone who tapped "Open
  * private chat" in WhatsApp. Registration, calls and the status page are
  * not part of that and are not functional here either, so they answer 404
- * rather than showing a customer a screen that cannot work — that is the
- * surface an outsider poking at the root URL would otherwise find.
+ * rather than showing a customer a screen that cannot work.
+ *
+ * The root is the exception among those: it is a plain landing page now,
+ * because the domain travels inside WhatsApp messages and the person who
+ * types it is usually checking that the link they were sent is genuine.
  *
  * Sign-in and user management are the exception. They ARE functional now
  * (they talk to NEXT_PUBLIC_VOXO_API_URL, the same backend the chat window
@@ -49,6 +52,13 @@ export function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   if (pathname === '/c' || pathname.startsWith('/c/')) return NextResponse.next();
+
+  // The landing page. Allowed because the domain now appears inside
+  // WhatsApp messages, so people read it and type it before tapping — and
+  // answering 404 to someone checking whether a link they were sent is
+  // real is the opposite of reassuring. It holds no data and needs no
+  // session; see (app)/page.tsx.
+  if (pathname === '/') return NextResponse.next();
 
   // User management and the sign-in it needs. Allowed through even on a
   // customer-facing deployment, because there is nothing behind them to

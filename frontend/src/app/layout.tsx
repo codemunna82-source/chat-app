@@ -28,28 +28,30 @@ const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').re
 
 export const metadata: Metadata = {
   metadataBase: new URL(siteUrl),
-  title: "Chat App | Real-Time Messaging",
-  description: "A high-performance real-time chat application built with Next.js and Socket.io.",
+  title: "waprivate — secure business chat",
+  description:
+    "The private chat window businesses use to continue WhatsApp conversations securely.",
   icons: {
     icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
     shortcut: "/favicon.svg",
     apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
   },
-  keywords: ["chat", "real-time", "messaging", "mern", "nextjs"],
-  authors: [{ name: "Chat App Team" }],
+  keywords: ["whatsapp", "business chat", "secure messaging", "customer support"],
+  authors: [{ name: "waprivate" }],
   openGraph: {
-    title: "Chat App | Real-Time Messaging",
-    description: "Connect with friends and family instantly with our secure chat platform.",
+    title: "waprivate — secure business chat",
+    description:
+      "The private chat window businesses use to continue WhatsApp conversations securely.",
     type: "website",
     // Was a hardcoded domain this app has never been served from, so every
     // shared link advertised a site that does not exist.
     url: siteUrl,
-    siteName: "Chat App",
+    siteName: "waprivate",
   },
   twitter: {
     card: "summary_large_image",
-    title: "Chat App | Real-Time Messaging",
-    description: "A high-performance real-time chat application.",
+    title: "waprivate — secure business chat",
+    description: "The private chat window behind a WhatsApp message.",
   },
 };
 

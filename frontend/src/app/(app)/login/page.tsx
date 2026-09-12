@@ -68,7 +68,7 @@ export default function LoginPage() {
 
         <div className="space-y-1.5">
           <label htmlFor="login-identifier" className="text-xs font-semibold uppercase tracking-wide text-muted">
-            Phone number
+            Email or phone number
           </label>
           <Input
             id="login-identifier"
@@ -81,7 +81,7 @@ export default function LoginPage() {
             // The country code is what makes the number unambiguous, and
             // the placeholder is the only place that gets said before
             // someone types the wrong thing and is told no.
-            placeholder="+91 98765 43210"
+            placeholder="you@company.com or +91 98765 43210"
             required
             autoComplete="tel"
           />
