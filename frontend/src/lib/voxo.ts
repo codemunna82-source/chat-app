@@ -330,14 +330,26 @@ export function updateAutoGuestLink(input: {
 /* ── Meta apps (Business Managers) ─────────────────────────────────── */
 
 export interface MetaAppSummary {
-  id: string;
+  /** null for the server's own environment configuration, which cannot be edited here. */
+  id: string | null;
   name: string;
-  appId: string;
+  /** An identifier, not a credential — Meta puts it in URLs. Null if unset. */
+  appId: string | null;
   status: 'ACTIVE' | 'DISABLED';
   /** Paste this into the Meta app's webhook Callback URL. */
   webhookUrl: string;
+  /**
+   * Whether each credential is set. Never the value: these can send as the
+   * business to any of its customers, and an admin page is one screenshot
+   * away from public.
+   */
+  hasAppSecret: boolean;
   hasAccessToken: boolean;
-  createdAt: string;
+  /** How many WhatsApp numbers sit under this Business Manager. */
+  numberCount: number;
+  /** True for the environment row, which is shown but not editable. */
+  isDefault: boolean;
+  createdAt: string | null;
 }
 
 /** Only on creation: the verify token, which is never readable again. */

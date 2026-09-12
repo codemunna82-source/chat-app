@@ -23,6 +23,21 @@ import { createMetaApp, listMetaApps, type MetaAppCreated, type MetaAppSummary }
  * back out — the list can honestly say whether one is set, and nothing
  * more. A masked value would only invite someone to try reading it.
  */
+/**
+ * Whether a credential is set, never what it is.
+ *
+ * "Saved" rather than a masked value on purpose: a row of dots tells an
+ * admin nothing they cannot get from this word, and invites them to think
+ * the real value is one click away.
+ */
+function CredentialState({ set }: { set: boolean }) {
+  return set ? (
+    <span className="font-semibold text-emerald-600 dark:text-emerald-400">Saved</span>
+  ) : (
+    <span className="font-semibold text-amber-700 dark:text-amber-400">Not set</span>
+  );
+}
+
 export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promise<void> }) {
   const [apps, setApps] = useState<MetaAppSummary[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -90,7 +105,9 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
     <section className="mt-8 rounded-3xl border border-border bg-surface/80 p-5 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h2 className="font-display text-lg font-bold tracking-tight">Business Managers</h2>
-        <p className="text-[12.5px] text-muted">One per Meta app, each with its own webhook URL.</p>
+        <p className="text-[12.5px] text-muted">
+          One per Meta app. Each has its own credentials and its own webhook URL.
+        </p>
       </div>
 
       {error ? (
@@ -156,48 +173,73 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
 
       {apps === null ? (
         <p className="mt-4 text-sm text-muted">Loading…</p>
-      ) : apps.length === 0 ? (
-        <p className="mt-4 rounded-2xl border border-border bg-surface/60 px-4 py-4 text-sm text-muted">
-          None added. The workspace runs on the server&rsquo;s single{' '}
-          <span className="font-mono">META_*</span> configuration, which is fine for one Business
-          Manager. Add one here when you need a second.
-        </p>
       ) : (
-        <ul className="mt-4 flex flex-col gap-2">
+        <ul className="mt-4 flex flex-col gap-3">
           {apps.map((a) => (
             <li
-              key={a.id}
-              className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-border bg-surface/60 px-4 py-3"
+              key={a.id ?? 'default'}
+              className="rounded-2xl border border-border bg-surface/60 px-4 py-3.5"
             >
-              <div className="min-w-0">
-                <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
-                  <span className="truncate">{a.name}</span>
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-                      a.status === 'ACTIVE'
-                        ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-                        : 'bg-foreground/10 text-muted'
-                    }`}
-                  >
-                    {a.status}
-                  </span>
-                  {!a.hasAccessToken ? (
-                    <span className="rounded-full bg-amber-500/15 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">
-                      no token
-                    </span>
-                  ) : null}
-                </p>
-                <p className="mt-0.5 truncate font-mono text-[12.5px] text-muted">App ID {a.appId}</p>
-                <p className="mt-1 truncate font-mono text-[12px] text-muted">{a.webhookUrl}</p>
+              <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-2">
+                <div className="min-w-0">
+                  <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
+                    <span className="truncate">{a.name}</span>
+                    {a.isDefault ? (
+                      <span className="rounded-full bg-foreground/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-muted">
+                        from server config
+                      </span>
+                    ) : (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
+                          a.status === 'ACTIVE'
+                            ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-foreground/10 text-muted'
+                        }`}
+                      >
+                        {a.status}
+                      </span>
+                    )}
+                  </p>
+                  <p className="mt-1 text-[13px] text-muted">
+                    <span className="font-semibold text-foreground">
+                      {a.numberCount} {a.numberCount === 1 ? 'number' : 'numbers'}
+                    </span>{' '}
+                    on this Business Manager
+                  </p>
+                </div>
+
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="h-9 min-h-9 shrink-0 px-3 text-[13px]"
+                  onClick={() => copy(a.webhookUrl, a.id ?? 'default')}
+                >
+                  {copied === (a.id ?? 'default') ? 'Copied' : 'Copy webhook URL'}
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                className="h-9 min-h-9 shrink-0 px-3 text-[13px]"
-                onClick={() => copy(a.webhookUrl, a.id)}
-              >
-                {copied === a.id ? 'Copied' : 'Copy URL'}
-              </Button>
+
+              {/* The three things an admin comes here to check, each either a
+                  value that is safe to show or an honest yes/no. */}
+              <dl className="mt-3 grid gap-x-6 gap-y-2 border-t border-border pt-3 text-[13px] sm:grid-cols-3">
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted">App ID</dt>
+                  <dd className="mt-0.5 truncate font-mono text-[12.5px]">{a.appId ?? 'not set'}</dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted">App secret</dt>
+                  <dd className="mt-0.5">
+                    <CredentialState set={a.hasAppSecret} />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[11px] font-semibold uppercase tracking-wide text-muted">Access token</dt>
+                  <dd className="mt-0.5">
+                    <CredentialState set={a.hasAccessToken} />
+                  </dd>
+                </div>
+              </dl>
+
+              <p className="mt-2.5 truncate font-mono text-[12px] text-muted">{a.webhookUrl}</p>
             </li>
           ))}
         </ul>

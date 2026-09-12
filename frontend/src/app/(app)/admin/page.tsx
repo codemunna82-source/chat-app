@@ -20,6 +20,7 @@ import { MemberRow } from '@/components/admin/MemberRow';
 import { NumberSetup } from '@/components/admin/NumberSetup';
 import { AutoReplySetup } from '@/components/admin/AutoReplySetup';
 import { BusinessManagers } from '@/components/admin/BusinessManagers';
+import { Section } from '@/components/admin/Section';
 
 /**
  * User management, on the web.
@@ -50,7 +51,6 @@ export default function AdminPage() {
    * when the workspace has no number at all, which is the same problem
    * one step earlier.
    */
-  const [showNumbers, setShowNumbers] = useState(false);
   const [metaApps, setMetaApps] = useState<MetaAppSummary[]>([]);
   // Bumped when a Business Manager is added, so the number form's picker
   // offers it immediately rather than after a page reload — adding a BM and
@@ -84,9 +84,6 @@ export default function AdminPage() {
       ]);
       setMembers(rows);
       setNumbers(nums);
-      // Nothing connected means nothing works. Say so on arrival rather
-      // than waiting to be asked.
-      if (nums.length === 0) setShowNumbers(true);
     } catch (err) {
       if (err instanceof VoxoError && err.status === 401) {
         router.replace('/login');
@@ -178,7 +175,7 @@ export default function AdminPage() {
     <main className="mx-auto w-full max-w-5xl px-5 py-10 sm:py-14">
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">User management</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight sm:text-3xl">Workspace settings</h1>
           <p className="mt-1 text-sm text-muted">
             Signed in as{' '}
             <span className="text-foreground">
@@ -198,21 +195,14 @@ export default function AdminPage() {
             Sign out
           </Button>
           {isAdmin ? (
-            <>
-              <Button variant="outline" onClick={() => setShowNumbers((v) => !v)}>
-                {numbers.length > 0
-                  ? `WhatsApp numbers (${numbers.length})`
-                  : 'Connect a number'}
-              </Button>
-              <Button
-                onClick={() => {
-                  setEditing(null);
-                  setInviting(true);
-                }}
-              >
-                Add user
-              </Button>
-            </>
+            <Button
+              onClick={() => {
+                setEditing(null);
+                setInviting(true);
+              }}
+            >
+              Add user
+            </Button>
           ) : null}
         </div>
       </header>
@@ -229,35 +219,60 @@ export default function AdminPage() {
         </p>
       ) : null}
 
-      {inviting || editing ? (
-        <MemberForm
-          member={editing}
-          numbers={numbers}
-          onClose={() => {
-            setInviting(false);
-            setEditing(null);
-          }}
-          onSaved={async (created) => {
-            setInviting(false);
-            setEditing(null);
-            await load();
-            // Straight on to the number after a NEW user — see showNumbers.
-            // Not after an edit: nothing about changing someone's expiry
-            // date means their workspace needs a number connected.
-            if (created) setShowNumbers(true);
-          }}
-        />
+      {isAdmin ? (
+        <>
+          {/* Ordered the way a workspace is actually set up, and the order
+              matters: a number cannot be added before the Business Manager
+              whose token verifies it, and a user cannot be assigned a
+              number that does not exist yet. */}
+          <Section
+            step={1}
+            title="WhatsApp credentials"
+            description="Your Meta apps. Each Business Manager has its own app secret, access token and webhook URL — none of them are interchangeable."
+          >
+            <BusinessManagers onChanged={() => setMetaAppsVersion((v) => v + 1)} />
+          </Section>
+
+          <Section
+            step={2}
+            title="WhatsApp numbers"
+            description="The numbers customers message. Each belongs to one Business Manager — the one whose credentials can send and receive on it."
+          >
+            <NumberSetup numbers={numbers} metaApps={metaApps} onChanged={load} />
+          </Section>
+
+          <Section
+            step={3}
+            title="Automatic replies"
+            description="What VOXO sends on its own when a customer messages, without waiting for an agent."
+          >
+            <AutoReplySetup />
+          </Section>
+        </>
       ) : null}
 
-      {isAdmin ? <BusinessManagers onChanged={() => setMetaAppsVersion((v) => v + 1)} /> : null}
+      <Section
+        step={isAdmin ? 4 : 1}
+        title="Team"
+        description="Who can sign in, what they can do, and which number's chats they see."
+      >
+        {inviting || editing ? (
+          <MemberForm
+            member={editing}
+            numbers={numbers}
+            onClose={() => {
+              setInviting(false);
+              setEditing(null);
+            }}
+            onSaved={async () => {
+              setInviting(false);
+              setEditing(null);
+              await load();
+            }}
+          />
+        ) : null}
 
-      {isAdmin && showNumbers ? (
-        <NumberSetup numbers={numbers} metaApps={metaApps} onChanged={load} />
-      ) : null}
-
-      {isAdmin ? <AutoReplySetup /> : null}
-
-      <section className="mt-8">
+        <div className="mt-6">
         {members === null ? (
           <p className="text-sm text-muted">Loading…</p>
         ) : sorted.length === 0 ? (
@@ -283,7 +298,8 @@ export default function AdminPage() {
             ))}
           </ul>
         )}
-      </section>
+        </div>
+      </Section>
     </main>
   );
 }
