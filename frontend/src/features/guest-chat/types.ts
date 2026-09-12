@@ -15,6 +15,15 @@ export interface GuestMessage {
   reactions?: { emoji: string; mine: boolean }[];
   /** Present on `type: 'location'` — where to draw the pin. */
   location?: GuestLocation;
+  /**
+   * How far this message has got. Only on the customer's own messages —
+   * a tick on a bubble they did not send would mean nothing to them.
+   *
+   * 'delivered' is two grey ticks (it reached the workspace), 'read' is
+   * two green ones (an agent opened the chat). 'sent' is the single tick
+   * everything else collapses to.
+   */
+  status?: 'sent' | 'delivered' | 'read';
 }
 
 /** A shared place. `name` and `address` are absent for a raw browser fix. */
@@ -32,7 +41,21 @@ export interface GuestLocation {
  * The pending flag lives here rather than in the component so the demo
  * transcript can be built with the same type the real one uses.
  */
-export type ThreadMessage = GuestMessage & { pending?: boolean };
+export type ThreadMessage = GuestMessage & {
+  pending?: boolean;
+  /**
+   * An object URL for a file still going up, so the photo is on screen
+   * the instant it is picked rather than after the round trip.
+   *
+   * Revoked when the real message replaces this row — an object URL that
+   * is never released pins the whole file in memory for the life of the
+   * tab, which on a thread of a dozen photos is the difference between a
+   * working page and one the browser kills.
+   */
+  localUrl?: string;
+  /** 0-1 while the bytes are going up; absent once the server has it. */
+  uploadProgress?: number;
+};
 
 export interface GuestSession {
   conversationId: string;
@@ -89,10 +112,12 @@ export interface RealtimeMessage {
   replyTo?: { id: string; from: 'me' | 'business'; preview: string };
   reactions?: { emoji: string; mine: boolean }[];
   location?: GuestLocation;
+  /** The workspace's own status enum — QUEUED | SENT | DELIVERED | READ | FAILED. */
+  status?: string;
 }
 
 export function realtimeToGuestMessage(m: RealtimeMessage): GuestMessage {
-  return {
+  const view: GuestMessage = {
     id: m.id,
     from: m.direction === 'IN' ? 'me' : 'business',
     type: m.type,
@@ -104,4 +129,50 @@ export function realtimeToGuestMessage(m: RealtimeMessage): GuestMessage {
     reactions: m.reactions,
     location: m.location,
   };
+  if (view.from === 'me') view.status = guestStatusFrom(m.status) ?? 'sent';
+  return view;
+}
+
+/**
+ * The workspace's storage status, translated for the customer.
+ *
+ * Returns undefined for anything unrecognised rather than guessing, so a
+ * status this window has never heard of leaves the existing tick alone
+ * instead of silently downgrading it.
+ */
+export function guestStatusFrom(status: string | undefined): GuestMessage['status'] | undefined {
+  switch (status) {
+    case 'READ':
+    case 'read':
+      return 'read';
+    case 'DELIVERED':
+    case 'delivered':
+      return 'delivered';
+    case 'QUEUED':
+    case 'SENT':
+    case 'sent':
+      return 'sent';
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Ordering, so a tick only ever moves forwards.
+ *
+ * Status events can arrive out of order — a DELIVERED landing after the
+ * READ that superseded it — and applying them blindly would take a green
+ * tick back to grey while the customer was looking at it.
+ */
+export function rankStatus(status: GuestMessage['status']): number {
+  switch (status) {
+    case 'read':
+      return 3;
+    case 'delivered':
+      return 2;
+    case 'sent':
+      return 1;
+    default:
+      return 0;
+  }
 }

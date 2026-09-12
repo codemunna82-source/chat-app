@@ -262,27 +262,57 @@ export interface UploadResult {
  * include the boundary it generated. Setting it by hand produces a body
  * the server cannot parse.
  */
-export async function uploadImages(token: string, files: File[]): Promise<UploadResult> {
+export async function uploadImages(
+  token: string,
+  files: File[],
+  /**
+   * Called with 0-1 as the bytes go up.
+   *
+   * The reason this function is XHR rather than fetch: fetch cannot
+   * report request-body progress at all, so a photo on a slow connection
+   * could only ever be an indeterminate spinner — indistinguishable from
+   * a stalled one, which is when people give up and send it again.
+   */
+  onProgress?: (fraction: number) => void,
+): Promise<UploadResult> {
   const form = new FormData();
   for (const file of files) form.append('files', file);
 
-  let res: Response;
-  try {
-    res = await fetch(`${apiBaseUrl()}/guest/media`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
-      body: form,
-    });
-  } catch (err) {
-    throw new GuestNetworkError(err);
-  }
+  const { status, text } = await new Promise<{ status: number; text: string }>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${apiBaseUrl()}/guest/media`);
+    xhr.setRequestHeader('Authorization', `Bearer ${token}`);
+    // Content-Type is deliberately NOT set: the browser writes it itself
+    // so it can include the multipart boundary it generated. Setting it
+    // by hand produces a body the server cannot parse.
 
-  if (res.status === 401) throw new GuestLinkInvalidError();
-  const body = (await res.json().catch(() => null)) as
-    | { data?: GuestMessage[]; meta?: { failed?: { filename: string; message: string }[] }; error?: { message?: string } }
-    | null;
-  if (!res.ok) {
-    throw new Error(body?.error?.message ?? `Upload failed (${res.status})`);
+    if (onProgress) {
+      xhr.upload.onprogress = (e) => {
+        // lengthComputable is false for a streamed body on some browsers.
+        // Reporting nothing then is honest, and leaves the bubble on its
+        // indeterminate state rather than inventing a position.
+        if (!e.lengthComputable || !e.total) return;
+        onProgress(Math.min(1, e.loaded / e.total));
+      };
+    }
+
+    xhr.onload = () => resolve({ status: xhr.status, text: xhr.responseText });
+    xhr.onerror = () => reject(new GuestNetworkError(new Error('upload failed')));
+    xhr.ontimeout = () => reject(new GuestNetworkError(new Error('upload timed out')));
+    xhr.onabort = () => reject(new GuestNetworkError(new Error('upload aborted')));
+    xhr.send(form);
+  });
+
+  if (status === 401) throw new GuestLinkInvalidError();
+  let body: { data?: GuestMessage[]; meta?: { failed?: { filename: string; message: string }[] }; error?: { message?: string } } | null =
+    null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  if (status < 200 || status >= 300) {
+    throw new Error(body?.error?.message ?? `Upload failed (${status})`);
   }
   return { sent: body?.data ?? [], failed: body?.meta?.failed ?? [] };
 }

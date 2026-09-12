@@ -445,7 +445,11 @@ html.dark .glass-liquid {
   --wa-text: #111b21;
   --wa-meta: #667781;
   --wa-tick: #8696a0;
-  --wa-tick-read: #53bdeb;
+  /* Green rather than WhatsApp's blue, to match this app's own palette.
+     Deeper than the brand #25d366 because the read tick sits on the pale
+     green outgoing bubble, where the brand colour has too little contrast
+     to read as a mark at all. */
+  --wa-tick-read: #0a9d57;
   --wa-chip: #ffffff;
   --wa-chip-text: #54656f;
   --wa-notice: #fff3c5;
@@ -477,7 +481,8 @@ html.dark .wa {
   --wa-text: #e9edef;
   --wa-meta: rgba(233, 237, 239, 0.6);
   --wa-tick: #8696a0;
-  --wa-tick-read: #53bdeb;
+  /* On the dark outgoing bubble the brand green is the legible one. */
+  --wa-tick-read: #25d366;
   --wa-chip: #182229;
   --wa-chip-text: #8696a0;
   --wa-notice: #182634;

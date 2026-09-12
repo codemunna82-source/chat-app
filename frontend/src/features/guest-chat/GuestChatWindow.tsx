@@ -58,6 +58,8 @@ import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
 import { uploadVoiceNote } from './guestApi';
 import {
   realtimeToGuestMessage,
+  guestStatusFrom,
+  rankStatus,
   type GuestSession,
   type RealtimeMessage,
   type ThreadMessage,
@@ -188,15 +190,98 @@ function TypingBubble() {
 }
 
 /**
- * Sent / delivered, under the customer's own messages.
+ * Sending / sent / delivered / read, under the customer's own messages.
  *
- * Two states only. There is no blue "read" tick because nothing tells a web
- * guest when an agent opened the thread, and a read receipt the customer
- * cannot rely on is worse than none.
+ * There used to be no read tick here, and the reason given was sound at
+ * the time: nothing told a web guest when an agent had opened the thread,
+ * and a read receipt the customer cannot rely on is worse than none. That
+ * is no longer true — opening a chat now marks the customer's messages
+ * READ and pushes message:status into this window (see the backend's
+ * readReceipts.service.ts), so the mark is backed by a real event.
+ *
+ * Green rather than WhatsApp's blue, to match this app's palette.
  */
-function MessageTicks({ pending }: { pending?: boolean }) {
+function MessageTicks({ pending, status }: { pending?: boolean; status?: ThreadMessage['status'] }) {
   if (pending) return <ClockTick className="h-[13px] w-[13px] text-[var(--wa-tick)]" />;
-  return <TickIcon double className="h-[13px] w-[16px] text-[var(--wa-tick)]" />;
+  const read = status === 'read';
+  return (
+    <>
+      <TickIcon
+        double={status !== 'sent'}
+        className={`h-[13px] w-[16px] ${read ? 'text-[var(--wa-tick-read)]' : 'text-[var(--wa-tick)]'}`}
+      />
+      {/* The icons are aria-hidden, so the state has to be said in words
+          for anyone who cannot see the colour it is carried by. */}
+      <span className="sr-only">{read ? 'Read' : status === 'sent' ? 'Sent' : 'Delivered'}</span>
+    </>
+  );
+}
+
+/**
+ * What a photo looks like while its bytes are still going up.
+ *
+ * A percentage and a determinate bar rather than a spinner: on a slow
+ * connection a spinner is indistinguishable from a stalled upload, which
+ * is exactly when someone gives up and sends the picture twice. The
+ * spinner is kept only for the case the browser reports no total, where
+ * an honest "working" beats a bar invented out of nothing.
+ */
+function UploadCover({ progress }: { progress?: number }) {
+  const known = typeof progress === 'number' && progress > 0;
+  const pct = Math.round(Math.min(1, Math.max(0, progress ?? 0)) * 100);
+
+  return (
+    <span
+      className="absolute inset-0 flex items-center justify-center rounded-[7px] bg-black/40"
+      role="progressbar"
+      aria-label={known ? `Uploading, ${pct} percent` : 'Uploading'}
+      aria-valuenow={known ? pct : undefined}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      {known ? (
+        <span className="text-[13px] font-medium tabular-nums text-white">{pct}%</span>
+      ) : (
+        <span className="h-5 w-5 animate-spin rounded-full border-2 border-white/40 border-t-white" />
+      )}
+      <span className="absolute inset-x-3 bottom-3 h-[3px] overflow-hidden rounded-full bg-white/30">
+        <span
+          className="block h-full rounded-full bg-[#25d366] transition-[width] duration-150"
+          style={{ width: known ? `${pct}%` : '0%' }}
+        />
+      </span>
+    </span>
+  );
+}
+
+/**
+ * The green check beside the business name.
+ *
+ * Shown on every number, which is what makes the two meanings worth
+ * keeping apart rather than collapsing into one icon that says whatever
+ * is convenient.
+ *
+ * By default it stands for "this is a WhatsApp Business account". That is
+ * true of every number in this system by construction — a conversation
+ * only exists here because it arrived through the WhatsApp Business Cloud
+ * API — so the badge is never claiming something unearned.
+ *
+ * When Meta additionally reports the display NAME as APPROVED, the same
+ * mark carries the stronger claim, and only then. That distinction is not
+ * pedantry: "WhatsApp checked this business's name" is a statement only
+ * Meta can make, and a badge that made it on every account would tell the
+ * customer reading it precisely nothing — which is the entire value of
+ * the badge to them.
+ */
+function BusinessBadge({ verified, className }: { verified?: boolean; className?: string }) {
+  return (
+    <>
+      <VerifiedIcon className={`shrink-0 text-[#25d366] ${className ?? ''}`} />
+      <span className="sr-only">
+        {verified ? 'Business name verified by WhatsApp' : 'WhatsApp Business account'}
+      </span>
+    </>
+  );
 }
 
 /**
@@ -632,6 +717,24 @@ export default function GuestChatWindow({ token }: { token: string }) {
       setAgentTyping(false);
     });
 
+    // The other half of the ticks. The window already tells the server
+    // when the CUSTOMER reads; this is the server telling the window when
+    // an agent has read theirs, so a message does not sit on two grey
+    // ticks after someone has plainly seen it.
+    s.on('message:status', (payload: { messageId?: string; status?: string }) => {
+      const id = payload?.messageId;
+      const next = guestStatusFrom(payload?.status);
+      if (!id || !next) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          // Only forwards. Status events can arrive out of order, and a
+          // late DELIVERED after a READ would take a green tick back to
+          // grey in front of the customer.
+          m.id === id && rankStatus(next) > rankStatus(m.status) ? { ...m, status: next } : m,
+        ),
+      );
+    });
+
     s.on('agent:presence', (payload: { online: boolean }) => setAgentOnline(Boolean(payload?.online)));
 
     s.on('typing:start', () => {
@@ -645,6 +748,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
     return () => {
       s.off('message:new');
+      s.off('message:status');
       s.off('agent:presence');
       s.off('typing:start');
       s.off('typing:stop');
@@ -941,8 +1045,42 @@ export default function GuestChatWindow({ token }: { token: string }) {
       setErrorText(null);
       setAtBottom(true);
       setUploading((n) => n + files.length);
+
+      // On screen before a byte has moved, the way every messenger does
+      // it. Picking a photo used to show nothing at all in the thread
+      // until the upload finished, so on a slow connection the customer
+      // had no evidence anything had happened.
+      const batchId = `local-${Date.now()}`;
+      const previews: ThreadMessage[] = files.map((file, i) => ({
+        id: `${batchId}-${i}`,
+        from: 'me',
+        type: file.type.startsWith('video/') ? 'video' : 'image',
+        hasMedia: true,
+        createdAt: new Date().toISOString(),
+        pending: true,
+        localUrl: URL.createObjectURL(file),
+        uploadProgress: 0,
+      }));
+      setMessages((prev) => [...prev, ...previews]);
+
+      const dropPreviews = () => {
+        for (const p of previews) if (p.localUrl) URL.revokeObjectURL(p.localUrl);
+        const ids = new Set(previews.map((p) => p.id));
+        setMessages((prev) => prev.filter((m) => !ids.has(m.id)));
+      };
+
       try {
-        const { sent, failed } = await uploadImages(token, files);
+        const { sent, failed } = await uploadImages(token, files, (fraction) => {
+          const ids = new Set(previews.map((p) => p.id));
+          // One progress figure for the whole multipart body, shown on
+          // every bubble in the batch. Per-file progress is not something
+          // one request can report, and a bar that only moved on the last
+          // photo would be worse than one that moves on all of them.
+          setMessages((prev) =>
+            prev.map((m) => (ids.has(m.id) ? { ...m, uploadProgress: fraction } : m)),
+          );
+        });
+        dropPreviews();
         setMessages((prev) => sent.reduce(mergeMessage, prev));
         // Partial success is still success for what got through; only the
         // ones that did not are worth saying anything about.
@@ -952,6 +1090,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
           );
         }
       } catch (err) {
+        dropPreviews();
         if (err instanceof GuestLinkInvalidError) setPhase('invalid');
         else setErrorText(err instanceof Error ? err.message : 'Could not send those images.');
       } finally {
@@ -1345,12 +1484,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
         <div className="min-w-0 flex-1 pl-1">
           <h1 className="flex items-center gap-1 text-[17px] font-medium leading-tight">
             <span className="truncate">{title}</span>
-            {session?.verifiedByWhatsApp && (
-              <VerifiedIcon
-                className="h-[17px] w-[17px] shrink-0 translate-y-[0.5px] text-[#25d366]"
-                aria-label="Business name verified by WhatsApp"
-              />
-            )}
+            <BusinessBadge
+              verified={session?.verifiedByWhatsApp}
+              className="h-[17px] w-[17px] translate-y-[0.5px]"
+            />
           </h1>
           <p className="truncate text-[12.5px] leading-[15px] text-[var(--wa-header-sub)]" aria-live="polite">
             {!connected
@@ -1517,9 +1654,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
               </div>
               <p className="flex items-center justify-center gap-1.5 text-[17px] font-medium leading-tight">
                 {title}
-                {session?.verifiedByWhatsApp && (
-                  <VerifiedIcon className="h-[18px] w-[18px] shrink-0 translate-y-[1px] text-[#25d366]" />
-                )}
+                <BusinessBadge
+                  verified={session?.verifiedByWhatsApp}
+                  className="h-[18px] w-[18px] translate-y-[1px]"
+                />
               </p>
 
               {session?.businessPhone && (
@@ -1566,7 +1704,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 const first = newDay || startsNewGroup(m, prev);
                 const last =
                   !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
-                const isImage = Boolean(m.mediaId) && m.type === 'image';
+                // A local preview counts as an image too: the file is on
+                // screen before the server has an id for it.
+                const isImage = (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'image';
                 const isVoice = Boolean(m.mediaId) && m.type === 'audio';
                 // Only when the coordinates actually came through. A
                 // location message from before this field existed still has
@@ -1578,7 +1718,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 const stamp = (
                   <>
                     {formatTime(m.createdAt)}
-                    {mine && <MessageTicks pending={m.pending} />}
+                    {mine && <MessageTicks pending={m.pending} status={m.status} />}
                   </>
                 );
 
@@ -1656,7 +1796,21 @@ export default function GuestChatWindow({ token }: { token: string }) {
                         )}
 
                         {isImage ? (
-                          <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
+                          m.localUrl ? (
+                            // Still going up: the picked file itself,
+                            // under a cover that says how far it has got.
+                            <span className="relative block">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={m.localUrl}
+                                alt=""
+                                className="block max-h-[320px] w-full rounded-[7px] object-cover"
+                              />
+                              <UploadCover progress={m.uploadProgress} />
+                            </span>
+                          ) : (
+                            <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
+                          )
                         ) : isVoice ? (
                           <VoiceBubble token={token} mediaId={m.mediaId!} mine={mine} />
                         ) : place ? (
