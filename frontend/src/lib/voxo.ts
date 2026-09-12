@@ -302,6 +302,10 @@ export interface AutoGuestLink {
    * settings read — a save returns what was stored.
    */
   active?: boolean;
+  /** How the invitation is sent. 'text' needs nothing from Meta. */
+  mode: 'text' | 'template';
+  /** The wording sent in text mode. {{link}} becomes the customer's own URL. */
+  message: string;
   /** The approved WhatsApp template's name, as it appears in WhatsApp Manager. */
   templateName: string;
   /** Meta's language code for the approved copy, e.g. "en" or "en_US". */
@@ -331,6 +335,8 @@ export function fetchTenantSettings(): Promise<TenantSettings> {
 
 export function updateAutoGuestLink(input: {
   enabled: boolean;
+  mode?: 'text' | 'template';
+  message?: string;
   templateName?: string;
   templateLanguage?: string;
   bodyVariable?: 'none' | 'customer_name';
