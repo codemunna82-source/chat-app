@@ -300,6 +300,12 @@ export interface AutoGuestLink {
   templateLanguage: string;
   /** What fills the template body's {{1}}, when it has one. */
   bodyVariable: 'none' | 'customer_name';
+  /** How many times one customer may be sent the invitation. 1–3. */
+  maxSends: number;
+  /** Keep a customer's WhatsApp messages out of the inbox until they open the window. */
+  holdWhatsAppUntilOpened: boolean;
+  /** Posted into the chat the first time the customer writes from the window. */
+  welcomeMessage: string;
 }
 
 export interface TenantSettings {
@@ -320,6 +326,9 @@ export function updateAutoGuestLink(input: {
   templateName?: string;
   templateLanguage?: string;
   bodyVariable?: 'none' | 'customer_name';
+  maxSends?: number;
+  holdWhatsAppUntilOpened?: boolean;
+  welcomeMessage?: string;
 }): Promise<AutoGuestLink> {
   return request<AutoGuestLink>('/tenant/settings/auto-guest-link', {
     method: 'PATCH',

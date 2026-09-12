@@ -28,6 +28,9 @@ export function AutoReplySetup() {
   const [templateName, setTemplateName] = useState('');
   const [templateLanguage, setTemplateLanguage] = useState('');
   const [bodyVariable, setBodyVariable] = useState<'none' | 'customer_name'>('none');
+  const [maxSends, setMaxSends] = useState(1);
+  const [holdWhatsApp, setHoldWhatsApp] = useState(false);
+  const [welcomeMessage, setWelcomeMessage] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -40,6 +43,9 @@ export function AutoReplySetup() {
         setTemplateName(s.autoGuestLink.templateName);
         setTemplateLanguage(s.autoGuestLink.templateLanguage || 'en');
         setBodyVariable(s.autoGuestLink.bodyVariable);
+        setMaxSends(s.autoGuestLink.maxSends);
+        setHoldWhatsApp(s.autoGuestLink.holdWhatsAppUntilOpened);
+        setWelcomeMessage(s.autoGuestLink.welcomeMessage);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load settings.'));
   }, []);
@@ -55,8 +61,17 @@ export function AutoReplySetup() {
         templateName: templateName.trim() || undefined,
         templateLanguage: templateLanguage.trim() || undefined,
         bodyVariable,
+        maxSends,
+        holdWhatsAppUntilOpened: holdWhatsApp,
+        welcomeMessage,
       });
       setSettings((prev) => (prev ? { ...prev, autoGuestLink: saved } : prev));
+      // Read the saved values back rather than leaving what was typed: the
+      // server clamps maxSends and trims the greeting, so the form should
+      // show what was actually stored, not what was submitted.
+      setMaxSends(saved.maxSends);
+      setHoldWhatsApp(saved.holdWhatsAppUntilOpened);
+      setWelcomeMessage(saved.welcomeMessage);
       setNotice(
         saved.enabled
           ? 'On. The next customer who messages will be sent the template automatically.'
@@ -231,6 +246,80 @@ export function AutoReplySetup() {
         </label>
       </div>
 
+      {/* Everything below only matters once the invitation is going out, so
+          it sits after the template and before the switch. */}
+      <div className="mt-6 border-t border-border pt-5">
+        <h3 className="text-[11px] font-semibold uppercase tracking-wide text-muted">
+          How hard to push
+        </h3>
+
+        <label className="mt-3 flex flex-col gap-1.5 sm:max-w-sm">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Send the invitation
+          </span>
+          <select
+            id="auto-reply-max-sends"
+            value={maxSends}
+            onChange={(e) => setMaxSends(Number(e.target.value))}
+            className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+          >
+            <option value={1}>Once per customer</option>
+            <option value={2}>Twice — again if they write without opening it</option>
+            <option value={3}>Three times</option>
+          </select>
+          <span className="text-[12px] leading-snug text-muted">
+            A customer who writes again without tapping the link probably never saw it. Past three,
+            they are not missing it &mdash; they are declining it.
+          </span>
+        </label>
+
+        <label
+          htmlFor="auto-reply-hold"
+          className="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-border bg-surface/60 px-4 py-3.5"
+        >
+          <input
+            id="auto-reply-hold"
+            type="checkbox"
+            checked={holdWhatsApp}
+            onChange={(e) => setHoldWhatsApp(e.target.checked)}
+            className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--primary)]"
+          />
+          <span className="min-w-0">
+            <span className="block text-[14px] font-semibold">
+              Hide their WhatsApp messages until they open the chat
+            </span>
+            <span className="mt-1 block text-[12.5px] leading-snug text-muted">
+              Nothing is lost &mdash; every message is saved and appears in full the moment they
+              arrive. But{' '}
+              <strong className="font-semibold text-foreground">
+                a customer who never taps the link is never seen
+              </strong>
+              , and nobody will know they wrote. Leave this off unless the web chat is the only way
+              you want to talk.
+            </span>
+          </span>
+        </label>
+
+        <label className="mt-4 flex flex-col gap-1.5">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+            Greeting when they arrive
+          </span>
+          <textarea
+            id="auto-reply-welcome"
+            value={welcomeMessage}
+            onChange={(e) => setWelcomeMessage(e.target.value)}
+            rows={2}
+            maxLength={900}
+            placeholder="Hello, welcome! How can we help?"
+            className="w-full rounded-2xl glass-input px-3 py-2.5 text-sm leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+          />
+          <span className="text-[12px] leading-snug text-muted">
+            Posted into the chat the first time they write from the window. Your agents see it too,
+            so nobody repeats it. Leave blank for no greeting.
+          </span>
+        </label>
+      </div>
+
       <div className="mt-6 flex flex-wrap gap-2">
         <Button
           type="button"
@@ -242,7 +331,7 @@ export function AutoReplySetup() {
         </Button>
         {enabled ? (
           <Button type="button" variant="ghost" onClick={() => void save(true)} disabled={busy}>
-            Save template details
+            Save settings
           </Button>
         ) : null}
       </div>
