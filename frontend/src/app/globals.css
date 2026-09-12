@@ -137,7 +137,9 @@ html.app-shell-lock body {
 .water-page-bg {
   position: relative;
   isolation: isolate;
-  background-image: linear-gradient(165deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, #6366f1) 52%, var(--background) 100%);
+  /* Green, matching the palette above. This was still the old indigo —
+     a page-wide wash tinting every screen a colour the theme had left. */
+  background-image: linear-gradient(165deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, #25d366) 52%, var(--background) 100%);
 }
 .liquid-mesh-bg::before,
 .water-page-bg::before {
