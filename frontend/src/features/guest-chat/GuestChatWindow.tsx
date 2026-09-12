@@ -25,7 +25,6 @@ import { ChatSkeleton } from './ChatSkeleton';
 import { tapFeedback, useDismissOnBack } from './useDismissOnBack';
 import { outboxToMessage, readOutbox, writeOutbox, type OutboxItem } from './outbox';
 import {
-  BackIcon,
   BlockIcon,
   CameraIcon,
   ChevronDownIcon,
@@ -1330,16 +1329,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
       <audio ref={call.remoteAudioRef} autoPlay playsInline className="hidden" />
 
       {/* ── Header ─────────────────────────────────────────────── */}
-      <header className="z-20 flex shrink-0 items-center gap-2 bg-[var(--wa-header)] px-1.5 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-[var(--wa-header-text)] shadow-[0_1px_2px_rgba(11,20,26,0.08)]">
-        <button
-          type="button"
-          onClick={() => window.history.back()}
-          aria-label="Back"
-          className="flex h-10 w-8 shrink-0 items-center justify-center rounded-full transition active:scale-90"
-        >
-          <BackIcon className="h-6 w-6" />
-        </button>
-
+      {/* No back button. This window is opened from a link, so there is
+          almost never anywhere to go back TO — history.back() either did
+          nothing or dropped the customer out of the conversation onto
+          whatever page happened to precede it. An arrow that usually does
+          nothing reads as a broken control, and the space it took is
+          better given to the name. */}
+      <header className="z-20 flex shrink-0 items-center gap-2 bg-[var(--wa-header)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-[var(--wa-header-text)] shadow-[0_1px_2px_rgba(11,20,26,0.08)]">
         <div className="relative shrink-0">
           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/18 text-[13px] font-semibold text-[var(--wa-accent)]">
             {initials || <PersonIcon className="h-6 w-6 opacity-70" />}
