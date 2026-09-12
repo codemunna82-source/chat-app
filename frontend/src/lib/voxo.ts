@@ -320,7 +320,21 @@ export interface AutoGuestLink {
   welcomeMessage: string;
 }
 
-export interface TenantSettings {
+/** Where the name a customer sees in the web chat window came from. */
+export type BusinessNameSource = 'settings' | 'whatsapp' | 'workspace' | 'fallback';
+
+export interface BusinessProfile {
+  /** The override set on this screen; empty when unset. */
+  displayName: string;
+  /** What a customer actually reads at the top of the web chat window. */
+  customerFacingName: string;
+  customerFacingNameSource: BusinessNameSource;
+  /** Meta's approved display name for the workspace's first number, if any. */
+  whatsappVerifiedName: string;
+}
+
+export interface TenantSettings extends BusinessProfile {
+  /** The workspace's internal label. Staff-facing only. */
   name: string;
   autoGuestLink: AutoGuestLink;
   /** False means the server has no GUEST_LINK_BASE_URL, so there is no link to send. */
@@ -331,6 +345,18 @@ export interface TenantSettings {
 
 export function fetchTenantSettings(): Promise<TenantSettings> {
   return request<TenantSettings>('/tenant/settings');
+}
+
+/**
+ * Sets the name customers see. An empty string is meaningful — it clears
+ * the override and goes back to the name WhatsApp holds for the number —
+ * so it is sent rather than treated as "no change".
+ */
+export function updateBusinessProfile(input: { displayName: string }): Promise<BusinessProfile> {
+  return request<BusinessProfile>('/tenant/settings/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
 }
 
 export function updateAutoGuestLink(input: {

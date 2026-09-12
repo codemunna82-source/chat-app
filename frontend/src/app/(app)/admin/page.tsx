@@ -21,6 +21,7 @@ import { NumberSetup } from '@/components/admin/NumberSetup';
 import { AutoReplySetup } from '@/components/admin/AutoReplySetup';
 import { BusinessManagers } from '@/components/admin/BusinessManagers';
 import { Section } from '@/components/admin/Section';
+import { BusinessProfile } from '@/components/admin/BusinessProfile';
 
 /**
  * User management, on the web.
@@ -243,6 +244,14 @@ export default function AdminPage() {
 
           <Section
             step={3}
+            title="Business profile"
+            description="The name your customers see when they open the private chat window you send them."
+          >
+            <BusinessProfile />
+          </Section>
+
+          <Section
+            step={4}
             title="Automatic replies"
             description="What VOXO sends on its own when a customer messages, without waiting for an agent."
           >
@@ -252,7 +261,7 @@ export default function AdminPage() {
       ) : null}
 
       <Section
-        step={isAdmin ? 4 : 1}
+        step={isAdmin ? 5 : 1}
         title="Team"
         description="Who can sign in, what they can do, and which number's chats they see."
       >
