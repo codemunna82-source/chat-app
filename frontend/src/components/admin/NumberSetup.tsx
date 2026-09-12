@@ -8,6 +8,7 @@ import {
   fetchMetaConfigHealth,
   registerNumberForCloudApi,
   type MetaConfigHealth,
+  type MetaAppSummary,
   type WhatsAppNumber,
 } from '@/lib/voxo';
 
@@ -31,13 +32,16 @@ import {
  */
 export function NumberSetup({
   numbers,
+  metaApps,
   onChanged,
 }: {
   numbers: WhatsAppNumber[];
+  metaApps: MetaAppSummary[];
   onChanged: () => void | Promise<void>;
 }) {
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [wabaId, setWabaId] = useState('');
+  const [metaAppId, setMetaAppId] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -59,7 +63,11 @@ export function NumberSetup({
     setError(null);
     setNotice(null);
     try {
-      const added = await addWhatsAppNumber(id, wabaId.trim());
+      const added = await addWhatsAppNumber({
+        phoneNumberId: id,
+        wabaId: wabaId.trim(),
+        metaAppId: metaAppId || undefined,
+      });
       setPhoneNumberId('');
       setWabaId('');
       await onChanged();
@@ -216,6 +224,33 @@ export function NumberSetup({
             Only needed if this workspace has more than one WABA
           </span>
         </label>
+
+        {metaApps.length > 0 ? (
+          <label className="flex flex-col gap-1.5 sm:col-span-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+              Business Manager
+            </span>
+            <select
+              id="wa-meta-app"
+              value={metaAppId}
+              onChange={(e) => setMetaAppId(e.target.value)}
+              className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+            >
+              <option value="">The server&rsquo;s default configuration</option>
+              {metaApps
+                .filter((a) => a.status === 'ACTIVE')
+                .map((a) => (
+                  <option key={a.id} value={a.id}>
+                    {a.name}
+                  </option>
+                ))}
+            </select>
+            <span className="text-[12px] leading-snug text-muted">
+              Which Meta app this number lives under. Get this wrong and the number will send but
+              never receive &mdash; Meta signs each webhook with its own app&rsquo;s secret.
+            </span>
+          </label>
+        ) : null}
 
         <div className="sm:col-span-2">
           <Button type="submit" disabled={!phoneNumberId.trim() || busy !== null}>

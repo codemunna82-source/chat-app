@@ -10,6 +10,8 @@ import {
   fetchMe,
   listMembers,
   listWhatsAppNumbers,
+  listMetaApps,
+  type MetaAppSummary,
   type TeamMember,
   type WhatsAppNumber,
 } from '@/lib/voxo';
@@ -17,6 +19,7 @@ import { MemberForm } from '@/components/admin/MemberForm';
 import { MemberRow } from '@/components/admin/MemberRow';
 import { NumberSetup } from '@/components/admin/NumberSetup';
 import { AutoReplySetup } from '@/components/admin/AutoReplySetup';
+import { BusinessManagers } from '@/components/admin/BusinessManagers';
 
 /**
  * User management, on the web.
@@ -48,6 +51,20 @@ export default function AdminPage() {
    * one step earlier.
    */
   const [showNumbers, setShowNumbers] = useState(false);
+  const [metaApps, setMetaApps] = useState<MetaAppSummary[]>([]);
+  // Bumped when a Business Manager is added, so the number form's picker
+  // offers it immediately rather than after a page reload — adding a BM and
+  // then adding a number to it is one continuous task.
+  const [metaAppsVersion, setMetaAppsVersion] = useState(0);
+
+  useEffect(() => {
+    if (!session) return;
+    void listMetaApps()
+      .then(setMetaApps)
+      // Silent: the picker simply does not appear, which is the correct
+      // state for a workspace that has no Business Managers configured.
+      .catch(() => setMetaApps([]));
+  }, [session, metaAppsVersion]);
 
   useEffect(() => hydrate(), [hydrate]);
 
@@ -232,7 +249,11 @@ export default function AdminPage() {
         />
       ) : null}
 
-      {isAdmin && showNumbers ? <NumberSetup numbers={numbers} onChanged={load} /> : null}
+      {isAdmin ? <BusinessManagers onChanged={() => setMetaAppsVersion((v) => v + 1)} /> : null}
+
+      {isAdmin && showNumbers ? (
+        <NumberSetup numbers={numbers} metaApps={metaApps} onChanged={load} />
+      ) : null}
 
       {isAdmin ? <AutoReplySetup /> : null}
 

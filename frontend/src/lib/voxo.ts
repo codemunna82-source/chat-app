@@ -42,6 +42,13 @@ export interface NumberHealth {
   stale: boolean;
 }
 
+export interface AddNumberInput {
+  phoneNumberId: string;
+  wabaId?: string;
+  /** Which Business Manager this number lives under. Omitted = the server's global config. */
+  metaAppId?: string;
+}
+
 export interface WhatsAppNumber {
   id: string;
   /**
@@ -320,6 +327,44 @@ export function updateAutoGuestLink(input: {
   });
 }
 
+/* ── Meta apps (Business Managers) ─────────────────────────────────── */
+
+export interface MetaAppSummary {
+  id: string;
+  name: string;
+  appId: string;
+  status: 'ACTIVE' | 'DISABLED';
+  /** Paste this into the Meta app's webhook Callback URL. */
+  webhookUrl: string;
+  hasAccessToken: boolean;
+  createdAt: string;
+}
+
+/** Only on creation: the verify token, which is never readable again. */
+export interface MetaAppCreated extends MetaAppSummary {
+  verifyToken: string;
+}
+
+export function listMetaApps(): Promise<MetaAppSummary[]> {
+  return request<MetaAppSummary[]>('/meta-apps');
+}
+
+export function createMetaApp(input: {
+  name: string;
+  appId: string;
+  appSecret: string;
+  accessToken?: string;
+}): Promise<MetaAppCreated> {
+  return request<MetaAppCreated>('/meta-apps', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function updateMetaApp(
+  id: string,
+  patch: { name?: string; appSecret?: string; accessToken?: string; status?: 'ACTIVE' | 'DISABLED' },
+): Promise<MetaAppSummary> {
+  return request<MetaAppSummary>(`/meta-apps/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+}
+
 /* ── WhatsApp numbers, for the assignment dropdown ────────────────── */
 
 export function listWhatsAppNumbers(): Promise<WhatsAppNumber[]> {
@@ -332,10 +377,14 @@ export function listWhatsAppNumbers(): Promise<WhatsAppNumber[]> {
  * The id is checked against Meta before anything is stored, so a typo
  * fails here — naming the problem — rather than at 3am inside a send.
  */
-export function addWhatsAppNumber(phoneNumberId: string, wabaId?: string): Promise<WhatsAppNumber> {
+export function addWhatsAppNumber(input: AddNumberInput): Promise<WhatsAppNumber> {
   return request<WhatsAppNumber>('/whatsapp/numbers', {
     method: 'POST',
-    body: JSON.stringify({ phoneNumberId, wabaId: wabaId || undefined }),
+    body: JSON.stringify({
+      phoneNumberId: input.phoneNumberId,
+      wabaId: input.wabaId || undefined,
+      metaAppId: input.metaAppId || undefined,
+    }),
   });
 }
 
