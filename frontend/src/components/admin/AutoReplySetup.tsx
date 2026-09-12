@@ -65,7 +65,10 @@ export function AutoReplySetup() {
         holdWhatsAppUntilOpened: holdWhatsApp,
         welcomeMessage,
       });
-      setSettings((prev) => (prev ? { ...prev, autoGuestLink: saved } : prev));
+      // Re-read rather than merging the save response: `active` is only
+      // computed on the settings read, so merging would leave the badge
+      // showing a staleness the save just resolved.
+      setSettings(await fetchTenantSettings());
       // Read the saved values back rather than leaving what was typed: the
       // server clamps maxSends and trims the greeting, so the form should
       // show what was actually stored, not what was submitted.
@@ -94,6 +97,12 @@ export function AutoReplySetup() {
   }
 
   const enabled = settings.autoGuestLink.enabled;
+  // Switched on, but naming no template — so nothing is being sent. The
+  // state is reachable for any workspace that turned this on before it
+  // took a template, and reading "On" while every message is skipped is
+  // the kind of thing that surfaces as a customer complaint rather than
+  // as a setting anyone thinks to check.
+  const onButtInert = enabled && settings.autoGuestLink.active === false;
   const pattern = settings.guestLinkUrlPattern;
   const canEnable = Boolean(settings.guestLinkConfigured && templateName.trim() && templateLanguage.trim());
 
@@ -103,12 +112,14 @@ export function AutoReplySetup() {
         <h2 className="font-display text-lg font-bold tracking-tight">Automatic chat invitation</h2>
         <span
           className={`rounded-full px-2.5 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-            enabled
-              ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
-              : 'bg-foreground/10 text-muted'
+            onButtInert
+              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
+              : enabled
+                ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400'
+                : 'bg-foreground/10 text-muted'
           }`}
         >
-          {enabled ? 'On' : 'Off'}
+          {onButtInert ? 'On · not sending' : enabled ? 'On' : 'Off'}
         </span>
       </div>
 
@@ -119,6 +130,14 @@ export function AutoReplySetup() {
         every message: once someone has a live link, they will not be sent another until it expires
         or an agent replaces it.
       </p>
+
+      {onButtInert ? (
+        <p className="mt-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-[13px] leading-snug text-amber-700 dark:text-amber-400">
+          This is switched on but names no approved template, so{' '}
+          <strong className="font-semibold">nothing is being sent</strong>. Fill in the template
+          name and language below and save.
+        </p>
+      ) : null}
 
       {!settings.guestLinkConfigured ? (
         <p className="mt-4 rounded-2xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-[13px] leading-snug text-amber-700 dark:text-amber-400">

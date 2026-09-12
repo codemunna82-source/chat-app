@@ -294,6 +294,14 @@ export function disableMember(id: string): Promise<unknown> {
 
 export interface AutoGuestLink {
   enabled: boolean;
+  /**
+   * Whether anything will actually be sent.
+   *
+   * Not the same as `enabled`: a workspace switched on before it named a
+   * template has enabled true and nothing to send. Only present on the
+   * settings read — a save returns what was stored.
+   */
+  active?: boolean;
   /** The approved WhatsApp template's name, as it appears in WhatsApp Manager. */
   templateName: string;
   /** Meta's language code for the approved copy, e.g. "en" or "en_US". */
