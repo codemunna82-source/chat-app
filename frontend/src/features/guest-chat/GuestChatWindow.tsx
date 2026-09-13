@@ -1987,19 +1987,20 @@ export default function GuestChatWindow({ token }: { token: string }) {
       </div>
 
       {/* ── Status strips ──────────────────────────────────────── */}
-      {(offline || queuedCount > 0) && (
+      {/* Only when the device is actually OFFLINE.
+          The "Sending N messages…" and "Sending N photos…" strips are
+          gone. A message on its way already says so where the eye
+          already is — the clock tick under the bubble, and the progress
+          cover over the photo — so the strips repeated it in a band that
+          pushed the whole thread up and down as it appeared and
+          disappeared on every send. Losing a connection is different:
+          nothing else on screen tells the customer that, which is why
+          this half stays. */}
+      {offline && (
         <p className="z-10 shrink-0 bg-[var(--wa-notice)] px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-notice-text)]">
-          {offline
-            ? queuedCount > 0
-              ? `No connection · ${queuedCount} ${queuedCount === 1 ? 'message' : 'messages'} will send when you're back online`
-              : "No connection · you can keep typing, messages will send when you're back"
-            : `Sending ${queuedCount} ${queuedCount === 1 ? 'message' : 'messages'}…`}
-        </p>
-      )}
-
-      {uploading > 0 && (
-        <p className="z-10 shrink-0 bg-[var(--wa-accent)]/12 px-4 py-1.5 text-center text-[12px] font-medium text-[var(--wa-accent)]">
-          Sending {uploading} {uploading === 1 ? 'photo' : 'photos'}…
+          {queuedCount > 0
+            ? `No connection · ${queuedCount} ${queuedCount === 1 ? 'message' : 'messages'} will send when you're back online`
+            : "No connection · you can keep typing, messages will send when you're back"}
         </p>
       )}
 
