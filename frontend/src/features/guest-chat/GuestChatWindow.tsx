@@ -1804,7 +1804,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
                               <img
                                 src={m.localUrl}
                                 alt=""
-                                className="block max-h-[320px] w-full rounded-[7px] object-cover"
+                                // w-auto, matching ChatImage below: w-full
+                                // with object-cover stretched the picked
+                                // file to the bubble and cropped it, so a
+                                // portrait photo changed shape the moment
+                                // the upload finished and the real image
+                                // replaced it.
+                                className="block max-h-[320px] w-auto max-w-full rounded-[7px] object-cover"
                               />
                               <UploadCover progress={m.uploadProgress} />
                             </span>
