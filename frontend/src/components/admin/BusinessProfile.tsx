@@ -36,6 +36,33 @@ const SOURCE_COPY: Record<BusinessNameSource, { text: string; tone: 'ok' | 'warn
   },
 };
 
+/**
+ * Fills in the fields an older server does not send yet.
+ *
+ * This panel and the endpoint behind it deploy separately — the site goes
+ * out on a push, the API on its own redeploy — so there is always a
+ * window where this code is newer than the server answering it. Reading
+ * `customerFacingName.slice(...)` straight off that older response threw,
+ * and a thrown render in a client component takes the WHOLE admin page
+ * down: not a degraded panel, a blank screen with "Application error".
+ *
+ * So every field this component dereferences gets a defined value here,
+ * once, rather than a `?.` at each of a dozen use sites — one of which
+ * will eventually be forgotten.
+ */
+function normalize(s: Partial<Profile> & { name?: string }): Profile {
+  const displayName = s.displayName ?? '';
+  return {
+    displayName,
+    // Falling back to the workspace name, then to the same last resort the
+    // server itself uses, so the preview shows something true rather than
+    // an empty header.
+    customerFacingName: s.customerFacingName || displayName || s.name || 'Support',
+    customerFacingNameSource: s.customerFacingNameSource ?? 'fallback',
+    whatsappVerifiedName: s.whatsappVerifiedName ?? '',
+  };
+}
+
 export function BusinessProfile() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [displayName, setDisplayName] = useState('');
@@ -46,8 +73,9 @@ export function BusinessProfile() {
   useEffect(() => {
     void fetchTenantSettings()
       .then((s) => {
-        setProfile(s);
-        setDisplayName(s.displayName);
+        const profile = normalize(s);
+        setProfile(profile);
+        setDisplayName(profile.displayName);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load settings.'));
   }, []);
@@ -58,7 +86,7 @@ export function BusinessProfile() {
     setError(null);
     setNotice(null);
     try {
-      const saved = await updateBusinessProfile({ displayName: displayName.trim() });
+      const saved = normalize(await updateBusinessProfile({ displayName: displayName.trim() }));
       setProfile(saved);
       // Read back what was stored rather than keeping what was typed: the
       // server trims, and the resolved name may differ from the field
@@ -80,7 +108,9 @@ export function BusinessProfile() {
     );
   }
 
-  const source = SOURCE_COPY[profile.customerFacingNameSource];
+  // Indexed defensively: a source this build has no copy for — a value
+  // added to the server later — must not take the page down.
+  const source = SOURCE_COPY[profile.customerFacingNameSource] ?? SOURCE_COPY.fallback;
   const dirty = displayName.trim() !== profile.displayName;
 
   return (

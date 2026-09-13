@@ -22,6 +22,7 @@ import { AutoReplySetup } from '@/components/admin/AutoReplySetup';
 import { BusinessManagers } from '@/components/admin/BusinessManagers';
 import { Section } from '@/components/admin/Section';
 import { BusinessProfile } from '@/components/admin/BusinessProfile';
+import { SectionBoundary } from '@/components/admin/SectionBoundary';
 
 /**
  * User management, on the web.
@@ -231,7 +232,7 @@ export default function AdminPage() {
             title="WhatsApp credentials"
             description="Your Meta apps. Each Business Manager has its own app secret, access token and webhook URL — none of them are interchangeable."
           >
-            <BusinessManagers onChanged={() => setMetaAppsVersion((v) => v + 1)} />
+            <SectionBoundary><BusinessManagers onChanged={() => setMetaAppsVersion((v) => v + 1)} /></SectionBoundary>
           </Section>
 
           <Section
@@ -239,7 +240,7 @@ export default function AdminPage() {
             title="WhatsApp numbers"
             description="The numbers customers message. Each belongs to one Business Manager — the one whose credentials can send and receive on it."
           >
-            <NumberSetup numbers={numbers} metaApps={metaApps} onChanged={load} />
+            <SectionBoundary><NumberSetup numbers={numbers} metaApps={metaApps} onChanged={load} /></SectionBoundary>
           </Section>
 
           <Section
@@ -247,7 +248,7 @@ export default function AdminPage() {
             title="Business profile"
             description="The name your customers see when they open the private chat window you send them."
           >
-            <BusinessProfile />
+            <SectionBoundary><BusinessProfile /></SectionBoundary>
           </Section>
 
           <Section
@@ -255,7 +256,7 @@ export default function AdminPage() {
             title="Automatic replies"
             description="What VOXO sends on its own when a customer messages, without waiting for an agent."
           >
-            <AutoReplySetup />
+            <SectionBoundary><AutoReplySetup /></SectionBoundary>
           </Section>
         </>
       ) : null}
