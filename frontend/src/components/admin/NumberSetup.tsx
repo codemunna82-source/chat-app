@@ -7,6 +7,7 @@ import {
   addWhatsAppNumber,
   fetchMetaConfigHealth,
   registerNumberForCloudApi,
+  setNumberEnabled,
   type MetaConfigHealth,
   type MetaAppSummary,
   type WhatsAppNumber,
@@ -43,6 +44,7 @@ export function NumberSetup({
   const [wabaId, setWabaId] = useState('');
   const [metaAppId, setMetaAppId] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
+  const [toggling, setToggling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [config, setConfig] = useState<MetaConfigHealth | null>(null);
@@ -79,6 +81,33 @@ export function NumberSetup({
       setError(err instanceof Error ? err.message : 'Meta would not accept that id.');
     } finally {
       setBusy(null);
+    }
+  }
+
+  /**
+   * Turning one number's access on or off.
+   *
+   * Its own busy flag rather than sharing `busy` with registration: they
+   * disable different controls, and one spinner covering both would grey
+   * out a Register button because someone flipped a switch three rows
+   * down.
+   */
+  async function handleToggle(id: string, enabled: boolean) {
+    setToggling(id);
+    setError(null);
+    setNotice(null);
+    try {
+      const number = await setNumberEnabled(id, enabled);
+      setNotice(
+        enabled
+          ? `${number.displayPhoneNumber}: access restored. Members assigned to it can sign in again.`
+          : `${number.displayPhoneNumber}: access turned off. Members assigned to it are signed out and will see "Your access has been turned off."`,
+      );
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change access for that number.');
+    } finally {
+      setToggling(null);
     }
   }
 
@@ -147,6 +176,10 @@ export function NumberSetup({
         <ul className="mt-5 flex flex-col gap-2">
           {numbers.map((n) => {
             const pending = n.status !== 'CONNECTED';
+            // Absent means on: numbers stored before this switch existed
+            // have no value, and reading that as "off" would lock out a
+            // whole workspace on the deploy that shipped it.
+            const enabled = n.enabled !== false;
             return (
               <li
                 key={n.id}
@@ -166,6 +199,12 @@ export function NumberSetup({
                     </span>
                   </p>
                   <p className="mt-0.5 truncate font-mono text-[12.5px] text-muted">{n.phoneNumberId}</p>
+                  {!enabled ? (
+                    <p className="mt-1 text-[12.5px] font-medium text-amber-600 dark:text-amber-400">
+                      Members assigned to this number cannot sign in or send. Customer messages still
+                      arrive and wait.
+                    </p>
+                  ) : null}
                   {n.health ? (
                     <p className="mt-1 text-[12.5px] text-muted">
                       {n.health.headline}
@@ -173,14 +212,45 @@ export function NumberSetup({
                     </p>
                   ) : null}
                 </div>
-                <Button
-                  variant="outline"
-                  className="h-9 min-h-9 shrink-0 px-3 text-[13px]"
-                  disabled={busy !== null}
-                  onClick={() => void handleRegister(n.id, n.displayPhoneNumber)}
-                >
-                  {busy === n.id ? 'Registering…' : pending ? 'Register with Meta' : 'Re-register'}
-                </Button>
+                <div className="flex shrink-0 items-center gap-3">
+                  {/* The access switch. A real checkbox underneath, so it
+                      is reachable by keyboard and announced as what it is;
+                      the track and knob are only its appearance. */}
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <span className="text-[13px] font-medium text-muted">
+                      {enabled ? 'Access on' : 'Access off'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={enabled}
+                      disabled={toggling !== null}
+                      onChange={(e) => void handleToggle(n.id, e.target.checked)}
+                      aria-label={`Access to ${n.displayPhoneNumber} for the members assigned to it`}
+                    />
+                    <span
+                      aria-hidden
+                      className={`relative h-6 w-11 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface ${
+                        enabled ? 'bg-emerald-500' : 'bg-border'
+                      } ${toggling !== null ? 'opacity-50' : ''}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-[left] ${
+                          enabled ? 'left-[22px]' : 'left-0.5'
+                        }`}
+                      />
+                    </span>
+                  </label>
+
+                  <Button
+                    variant="outline"
+                    className="h-9 min-h-9 shrink-0 px-3 text-[13px]"
+                    disabled={busy !== null}
+                    onClick={() => void handleRegister(n.id, n.displayPhoneNumber)}
+                  >
+                    {busy === n.id ? 'Registering…' : pending ? 'Register with Meta' : 'Re-register'}
+                  </Button>
+                </div>
               </li>
             );
           })}

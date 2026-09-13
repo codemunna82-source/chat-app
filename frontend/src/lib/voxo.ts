@@ -60,6 +60,16 @@ export interface WhatsAppNumber {
   phoneNumberId: string;
   displayPhoneNumber: string;
   status: string;
+  /**
+   * The admin's own switch, not Meta's.
+   *
+   * `status` is what Meta says about the number; this is whether the
+   * workspace has left it switched on. Off locks out every member
+   * assigned to it. Older servers do not send it — treated as on there,
+   * which is what the server itself does for numbers stored before the
+   * field existed.
+   */
+  enabled?: boolean;
   qualityRating?: string;
   messagingLimitTier?: string;
   healthCheckedAt?: string;
@@ -461,6 +471,21 @@ export function addWhatsAppNumber(input: AddNumberInput): Promise<WhatsAppNumber
  *
  * Safe to repeat: Meta's "already registered" comes back as success.
  */
+/**
+ * Switches one number's access on or off.
+ *
+ * Off means every member assigned to that number is refused at sign-in
+ * and on every request, with "Your access has been turned off. Please
+ * contact your administrator." Inbound customer messages still land —
+ * what is gated is who may work them.
+ */
+export function setNumberEnabled(id: string, enabled: boolean): Promise<WhatsAppNumber> {
+  return request<WhatsAppNumber>(`/whatsapp/numbers/${encodeURIComponent(id)}/enabled`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
 export function registerNumberForCloudApi(
   id: string,
 ): Promise<{ registered: boolean; message: string }> {
