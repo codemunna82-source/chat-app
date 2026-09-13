@@ -70,6 +70,13 @@ export interface WhatsAppNumber {
    * field existed.
    */
   enabled?: boolean;
+  /**
+   * Meta's calling status — 'ENABLED' | 'DISABLED', absent if never read.
+   *
+   * Off by default on every number Meta issues, which is the single most
+   * common reason a WhatsApp call never arrives.
+   */
+  callingStatus?: string;
   qualityRating?: string;
   messagingLimitTier?: string;
   healthCheckedAt?: string;
@@ -481,6 +488,20 @@ export function addWhatsAppNumber(input: AddNumberInput): Promise<WhatsAppNumber
  */
 export function setNumberEnabled(id: string, enabled: boolean): Promise<WhatsAppNumber> {
   return request<WhatsAppNumber>(`/whatsapp/numbers/${encodeURIComponent(id)}/enabled`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+/**
+ * Switches WhatsApp voice calling on or off for a number, at Meta.
+ *
+ * On also asks Meta to show the call button in the customer's own
+ * WhatsApp chat — without that the number can take calls nobody has any
+ * way to place.
+ */
+export function setNumberCalling(id: string, enabled: boolean): Promise<WhatsAppNumber> {
+  return request<WhatsAppNumber>(`/whatsapp/numbers/${encodeURIComponent(id)}/calling`, {
     method: 'PATCH',
     body: JSON.stringify({ enabled }),
   });

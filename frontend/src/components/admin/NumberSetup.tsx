@@ -8,6 +8,7 @@ import {
   fetchMetaConfigHealth,
   registerNumberForCloudApi,
   setNumberEnabled,
+  setNumberCalling,
   type MetaConfigHealth,
   type MetaAppSummary,
   type WhatsAppNumber,
@@ -45,6 +46,7 @@ export function NumberSetup({
   const [metaAppId, setMetaAppId] = useState('');
   const [busy, setBusy] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [calling, setCalling] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [config, setConfig] = useState<MetaConfigHealth | null>(null);
@@ -108,6 +110,33 @@ export function NumberSetup({
       setError(err instanceof Error ? err.message : 'Could not change access for that number.');
     } finally {
       setToggling(null);
+    }
+  }
+
+  /**
+   * Switching WhatsApp voice calling on for a number, at Meta.
+   *
+   * The whole calling path is already built — an inbound call creates a
+   * log, rings the agent and pushes to their phone — but calling is OFF
+   * by default on every number Meta issues, so none of it ever fires
+   * until this is flipped, and nothing about the number's status says so.
+   */
+  async function handleCalling(id: string, enabled: boolean) {
+    setCalling(id);
+    setError(null);
+    setNotice(null);
+    try {
+      const number = await setNumberCalling(id, enabled);
+      setNotice(
+        enabled
+          ? `${number.displayPhoneNumber}: calling is on at Meta. Customers see a call button in their WhatsApp chat.`
+          : `${number.displayPhoneNumber}: calling is off. Customers can no longer call this number.`,
+      );
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not change calling for that number.');
+    } finally {
+      setCalling(null);
     }
   }
 
@@ -180,6 +209,10 @@ export function NumberSetup({
             // have no value, and reading that as "off" would lock out a
             // whole workspace on the deploy that shipped it.
             const enabled = n.enabled !== false;
+            // Absent means never read from Meta, which is not the same as
+            // off — so the switch shows unchecked but the row says the
+            // status is unknown rather than asserting one.
+            const callingOn = n.callingStatus === 'ENABLED';
             return (
               <li
                 key={n.id}
@@ -199,6 +232,16 @@ export function NumberSetup({
                     </span>
                   </p>
                   <p className="mt-0.5 truncate font-mono text-[12.5px] text-muted">{n.phoneNumberId}</p>
+                  {/* Said in words as well as by the switch: "never read
+                      from Meta" is not the same as "off", and an admin
+                      asking why a call has not arrived deserves to be
+                      told which of the two it is. */}
+                  {!n.callingStatus ? (
+                    <p className="mt-1 text-[12.5px] text-muted">
+                      Calling status not read from Meta yet — open this page again in a minute, or
+                      switch calling on to set it.
+                    </p>
+                  ) : null}
                   {!enabled ? (
                     <p className="mt-1 text-[12.5px] font-medium text-amber-600 dark:text-amber-400">
                       Members assigned to this number cannot sign in or send. Customer messages still
@@ -212,7 +255,36 @@ export function NumberSetup({
                     </p>
                   ) : null}
                 </div>
-                <div className="flex shrink-0 items-center gap-3">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                  {/* WhatsApp voice calling, at Meta. Off by default on
+                      every number, and the most common reason a call
+                      never arrives. */}
+                  <label className="flex cursor-pointer items-center gap-2">
+                    <span className="text-[13px] font-medium text-muted">
+                      {callingOn ? 'Calling on' : 'Calling off'}
+                    </span>
+                    <input
+                      type="checkbox"
+                      className="peer sr-only"
+                      checked={callingOn}
+                      disabled={calling !== null}
+                      onChange={(e) => void handleCalling(n.id, e.target.checked)}
+                      aria-label={`WhatsApp voice calling for ${n.displayPhoneNumber}`}
+                    />
+                    <span
+                      aria-hidden
+                      className={`relative h-6 w-11 rounded-full transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-primary peer-focus-visible:ring-offset-2 peer-focus-visible:ring-offset-surface ${
+                        callingOn ? 'bg-primary' : 'bg-border'
+                      } ${calling !== null ? 'opacity-50' : ''}`}
+                    >
+                      <span
+                        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-[left] ${
+                          callingOn ? 'left-[22px]' : 'left-0.5'
+                        }`}
+                      />
+                    </span>
+                  </label>
+
                   {/* The access switch. A real checkbox underneath, so it
                       is reachable by keyboard and announced as what it is;
                       the track and knob are only its appearance. */}
