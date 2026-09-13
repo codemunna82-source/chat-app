@@ -53,7 +53,9 @@ export default function LoginPage() {
           <MessageSquareText className="h-8 w-8 text-primary" />
         </div>
         <h2 className="font-display text-2xl font-bold tracking-tight text-foreground sm:text-3xl">Sign in to VOXO</h2>
-        <p className="text-sm text-muted leading-relaxed">Use the phone number and password your workspace admin gave you.</p>
+        <p className="text-sm text-muted leading-relaxed">
+          Use the email or phone number and password your workspace admin gave you.
+        </p>
       </div>
 
       <form onSubmit={handleLogin} className="mt-8 space-y-4">
@@ -72,18 +74,29 @@ export default function LoginPage() {
           </label>
           <Input
             id="login-identifier"
-            // tel, not email: the field takes a phone number. type="email"
-            // would have the browser refuse the form on a valid number.
-            type="tel"
-            inputMode="tel"
+            // Plain text, not "email" and not "tel".
+            //
+            // type="email" would have the browser refuse the form on a
+            // perfectly valid phone number. type="tel" was worse in the
+            // other direction: on a phone it forces the numeric keypad,
+            // so the label said "email or phone" above a keyboard with no
+            // letters on it — the email half was unreachable.
+            //
+            // inputMode="email" is what actually picks the keyboard, and
+            // it carries letters, the @ and the digits, so both kinds of
+            // identifier can be typed. The server decides which it got.
+            type="text"
+            inputMode="email"
             value={identifier}
             onChange={(e) => setIdentifier(e.target.value)}
-            // The country code is what makes the number unambiguous, and
+            // The country code is what makes a number unambiguous, and
             // the placeholder is the only place that gets said before
             // someone types the wrong thing and is told no.
             placeholder="you@company.com or +91 98765 43210"
             required
-            autoComplete="tel"
+            autoComplete="username"
+            autoCapitalize="none"
+            spellCheck={false}
           />
         </div>
 
