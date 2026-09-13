@@ -164,6 +164,64 @@ function startsNewGroup(current: ThreadMessage, previous?: ThreadMessage): boole
   return new Date(current.createdAt).getTime() - new Date(previous.createdAt).getTime() > GROUP_WINDOW_MS;
 }
 
+/** Photos sent together group into one grid, exactly as the agent app does. */
+const ALBUM_WINDOW_MS = 5 * 60_000;
+/** Three tiles, then a "+N" — a fourth means a second full row, which is the strip again. */
+const ALBUM_MAX_TILES = 3;
+
+type ThreadItem =
+  | { kind: 'one'; key: string; message: ThreadMessage }
+  | { kind: 'album'; key: string; messages: ThreadMessage[] };
+
+/**
+ * Collects runs of consecutive photos into albums.
+ *
+ * The same rules the agent app applies, so a batch of five looks the
+ * same to the customer as it does to the business — which is the point:
+ * the two are halves of one conversation, and a grid on one side and a
+ * vertical strip on the other make them look like two products.
+ *
+ * A captioned photo never joins a run and ENDS one: the words belong to
+ * that picture and a grid has nowhere to put them, and a caption left
+ * dangling would end up describing the tile above it. A reply does the
+ * same. A run of one is an ordinary bubble — a "grid" of a single photo
+ * is just a smaller photo.
+ */
+function groupThread(messages: ThreadMessage[]): ThreadItem[] {
+  const items: ThreadItem[] = [];
+  let run: ThreadMessage[] = [];
+
+  const flush = () => {
+    if (run.length >= 2) {
+      items.push({ kind: 'album', key: `album-${run[0]!.id}`, messages: run });
+    } else if (run.length === 1) {
+      items.push({ kind: 'one', key: run[0]!.id, message: run[0]! });
+    }
+    run = [];
+  };
+
+  const isTile = (m: ThreadMessage) =>
+    m.type === 'image' && Boolean(m.mediaId || m.localUrl) && !m.text && !m.replyTo;
+
+  for (const m of messages) {
+    if (!isTile(m)) {
+      flush();
+      items.push({ kind: 'one', key: m.id, message: m });
+      continue;
+    }
+    const last = run[run.length - 1];
+    const sameRun =
+      !last ||
+      (last.from === m.from &&
+        dayLabel(last.createdAt) === dayLabel(m.createdAt) &&
+        new Date(m.createdAt).getTime() - new Date(last.createdAt).getTime() <= ALBUM_WINDOW_MS);
+    if (!sameRun) flush();
+    run.push(m);
+  }
+  flush();
+  return items;
+}
+
 /** One line standing in for a message inside a quote — mirrors the server's own rule. */
 function previewOfMessage(m: ThreadMessage): string {
   if (m.text) return m.text;
@@ -1415,6 +1473,25 @@ export default function GuestChatWindow({ token }: { token: string }) {
     [messages, renderWindow],
   );
 
+  /**
+   * The albums in what is on screen, and which messages belong to one.
+   *
+   * Two lookups rather than a restructured list: the render below reads
+   * each message's neighbours by index for its bubble corners, and
+   * rewriting that to walk groups would have touched every line of it.
+   * The first photo of a run draws the whole grid; the rest draw nothing.
+   */
+  const { albumByFirstId, inAlbum } = useMemo(() => {
+    const byFirst = new Map<string, ThreadMessage[]>();
+    const members = new Set<string>();
+    for (const item of groupThread(visible)) {
+      if (item.kind !== 'album') continue;
+      byFirst.set(item.messages[0]!.id, item.messages);
+      for (const m of item.messages) members.add(m.id);
+    }
+    return { albumByFirstId: byFirst, inAlbum: members };
+  }, [visible]);
+
   const title = useMemo(() => session?.businessName ?? 'Chat', [session]);
   const initials = useMemo(
     () =>
@@ -1697,6 +1774,23 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
             <ul className="flex flex-col">
               {visible.map((m, i) => {
+                // Photos sent together are drawn once, as a grid, by the
+                // first of them; the rest render nothing of their own.
+                const album = albumByFirstId.get(m.id);
+                if (album) {
+                  return (
+                    <AlbumRow
+                      key={`album-${m.id}`}
+                      messages={album}
+                      token={token}
+                      mine={m.from === 'me'}
+                      newDay={!visible[i - 1] || dayLabel(visible[i - 1]!.createdAt) !== dayLabel(m.createdAt)}
+                      onOpen={setLightbox}
+                    />
+                  );
+                }
+                if (inAlbum.has(m.id)) return null;
+
                 const prev = visible[i - 1];
                 const next = visible[i + 1];
                 const mine = m.from === 'me';
@@ -2536,14 +2630,102 @@ function LiveWaveform({ levels, paused }: { levels: number[]; paused: boolean })
  * header. The object URL is revoked when this unmounts — without that,
  * every image stays in memory for the life of the tab.
  */
+/**
+ * Several photos sent together, as one grid.
+ *
+ * The agent app's shape, tile for tile: two side by side, three or more
+ * as one across the top with two beneath and the count on the last. The
+ * two clients are halves of one conversation and a batch of five has to
+ * look like the same batch on both.
+ *
+ * Tiles reuse ChatImage, so they fetch, cache and revoke exactly as a
+ * single photo does — and tapping one opens the same lightbox.
+ */
+function AlbumRow({
+  messages,
+  token,
+  mine,
+  newDay,
+  onOpen,
+}: {
+  messages: ThreadMessage[];
+  token: string;
+  mine: boolean;
+  newDay: boolean;
+  onOpen: (url: string) => void;
+}) {
+  const pair = messages.length === 2;
+  const tiles = messages.slice(0, pair ? 2 : ALBUM_MAX_TILES);
+  const hidden = messages.length - tiles.length;
+  const last = messages[messages.length - 1]!;
+
+  const tile = (m: ThreadMessage, more: number, className: string) => (
+    <span key={m.id} className={`relative block overflow-hidden rounded-[3px] ${className}`}>
+      {m.localUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={m.localUrl} alt="" className="h-full w-full object-cover" />
+      ) : m.mediaId ? (
+        <ChatImage token={token} mediaId={m.mediaId} onOpen={onOpen} tile />
+      ) : null}
+      {more > 0 && (
+        <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-[20px] font-semibold text-white">
+          +{more}
+        </span>
+      )}
+    </span>
+  );
+
+  return (
+    <li className="contents">
+      {newDay && (
+        <div className="my-3 flex justify-center">
+          <span className="rounded-md bg-[var(--wa-chip)] px-3 py-[5px] text-[12px] font-medium uppercase tracking-wide text-[var(--wa-chip-text)] shadow-[var(--wa-bubble-shadow)]">
+            {dayLabel(last.createdAt)}
+          </span>
+        </div>
+      )}
+      <div className={`wa-row mb-2 flex px-1 ${mine ? 'justify-end' : 'justify-start'}`}>
+        <div
+          className={[
+            'relative w-[232px] max-w-[85%] rounded-[7.5px] p-[3px] shadow-[var(--wa-bubble-shadow)]',
+            mine ? 'bg-[var(--wa-out)]' : 'bg-[var(--wa-in)]',
+          ].join(' ')}
+        >
+          {pair ? (
+            <span className="flex gap-[2px]">
+              {tiles.map((m) => tile(m, 0, 'h-[112px] w-1/2'))}
+            </span>
+          ) : (
+            <>
+              {tile(tiles[0]!, 0, 'h-[140px] w-full')}
+              <span className="mt-[2px] flex gap-[2px]">
+                {tiles.slice(1).map((m, i) =>
+                  tile(m, i === tiles.length - 2 ? hidden : 0, 'h-[112px] w-1/2'),
+                )}
+              </span>
+            </>
+          )}
+          <span className="flex items-center justify-end gap-1 px-[3px] pt-[3px] text-[11px] text-[var(--wa-meta)]">
+            {formatTime(last.createdAt)}
+            {mine && <MessageTicks status={last.status} />}
+          </span>
+        </div>
+      </div>
+    </li>
+  );
+}
+
 function ChatImage({
   token,
   mediaId,
   onOpen,
+  tile = false,
 }: {
   token: string;
   mediaId: string;
   onOpen: (url: string) => void;
+  /** Fills a fixed album cell instead of sizing itself to the photo. */
+  tile?: boolean;
 }) {
   // The demo has no media route behind it, so its images arrive as a src
   // already usable by the tag — the one branch the canned thread needs
@@ -2582,14 +2764,20 @@ function ChatImage({
 
   if (failed) {
     return (
-      <div className="flex h-40 w-56 items-center justify-center rounded-[6px] bg-black/5 text-xs text-[var(--wa-meta)]">
+      <div
+        className={
+          tile
+            ? 'flex h-full w-full items-center justify-center bg-black/5 text-[10px] text-[var(--wa-meta)]'
+            : 'flex h-40 w-56 items-center justify-center rounded-[6px] bg-black/5 text-xs text-[var(--wa-meta)]'
+        }
+      >
         Image unavailable
       </div>
     );
   }
 
   if (!url) {
-    return <div className="h-52 w-56 animate-pulse rounded-[6px] bg-black/10" />;
+    return <div className={tile ? 'h-full w-full animate-pulse bg-black/10' : 'h-52 w-56 animate-pulse rounded-[6px] bg-black/10'} />;
   }
 
   return (
@@ -2598,7 +2786,11 @@ function ChatImage({
       src={url}
       alt="Shared image"
       onClick={() => onOpen(url)}
-      className="max-h-[330px] w-auto max-w-full cursor-zoom-in rounded-[6px] object-cover"
+      className={
+        tile
+          ? 'h-full w-full cursor-zoom-in object-cover'
+          : 'max-h-[330px] w-auto max-w-full cursor-zoom-in rounded-[6px] object-cover'
+      }
     />
   );
 }
