@@ -6,17 +6,19 @@ import type { GuestLocation } from './types';
 /**
  * A shared place, inside a message bubble.
  *
- * The card behind the pin is a drawn abstraction, NOT a map of the
- * coordinates it sits above — no tiles are fetched and none could be
- * without handing a third-party map host every customer's location along
- * with the page they were on. A picture that looked like the real streets
- * around that pin while being generated from nothing would be the one
- * thing worse than no picture at all, so this one is unmistakably a
- * graphic: flat bands, no labels, no scale.
+ * Real map tiles, from OpenStreetMap's own embed, in an iframe. No API
+ * key and no SDK — the URL is the whole integration.
  *
- * What it is honest about is where the place actually is. The coordinates
- * are printed underneath, and the whole card opens the customer's real map
- * app, which does have the tiles.
+ * This DOES tell openstreetmap.org the coordinates and the viewer's IP,
+ * which an earlier drawn-graphic version of this card deliberately
+ * avoided. That was the owner's call to make and they made it: a picture
+ * of the actual streets is what makes a shared location useful, and a
+ * graphic that only suggested a map was not worth the space it took.
+ *
+ * The iframe is sandboxed and pointer-events are off, so the card is a
+ * picture rather than a map you can pan inside a chat bubble — dragging
+ * it would fight the thread's own scroll, and the tap target underneath
+ * is what opens the customer's real map app.
  */
 export function LocationBubble({ place, mine }: { place: GuestLocation; mine: boolean }) {
   const { latitude, longitude } = place;
@@ -28,6 +30,14 @@ export function LocationBubble({ place, mine }: { place: GuestLocation; mine: bo
   // links get tapped.
   const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${latitude},${longitude}`;
 
+  // OpenStreetMap's embed takes a bounding box, not a zoom level. This
+  // span is roughly a couple of streets across — close enough to place
+  // the pin on a recognisable corner, wide enough that a GPS reading a
+  // few metres out does not look like the wrong building.
+  const d = 0.0025;
+  const bbox = `${longitude - d},${latitude - d},${longitude + d},${latitude + d}`;
+  const embedUrl = `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${latitude},${longitude}`;
+
   return (
     <a
       href={mapsUrl}
@@ -36,27 +46,22 @@ export function LocationBubble({ place, mine }: { place: GuestLocation; mine: bo
       className="block w-[232px] overflow-hidden rounded-[6px] transition active:scale-[0.985]"
       aria-label={`${label}, open in maps`}
     >
-      <div
-        className="relative h-[118px] w-full"
-        style={{
-          background:
-            'linear-gradient(160deg, #dfeadf 0%, #cfe0d2 42%, #c3d8c8 100%)',
-        }}
-        aria-hidden
-      >
-        {/* Bands rather than a street grid: a grid invites the eye to read
-            it as a real place. These read as "map-ish surface" and nothing
-            more. */}
-        <svg viewBox="0 0 232 118" className="absolute inset-0 h-full w-full" preserveAspectRatio="none">
-          <path d="M-10 84 L92 34 L150 60 L242 18" fill="none" stroke="#ffffff" strokeWidth="9" strokeOpacity="0.75" />
-          <path d="M-10 26 L58 52 L96 108 L152 128" fill="none" stroke="#ffffff" strokeWidth="6" strokeOpacity="0.55" />
-          <path d="M160 -10 L188 46 L242 66" fill="none" stroke="#ffffff" strokeWidth="5" strokeOpacity="0.5" />
-          <circle cx="34" cy="96" r="26" fill="#b7d3bd" fillOpacity="0.75" />
-          <circle cx="206" cy="100" r="18" fill="#b7d3bd" fillOpacity="0.6" />
-          <rect x="118" y="70" width="30" height="22" rx="3" fill="#ffffff" fillOpacity="0.4" />
-          <rect x="70" y="12" width="26" height="18" rx="3" fill="#ffffff" fillOpacity="0.35" />
-        </svg>
-
+      <div className="relative h-[118px] w-full bg-[#e8e4df]" aria-hidden>
+        <iframe
+          src={embedUrl}
+          title=""
+          loading="lazy"
+          // No scripts, no forms, no navigation: this is a picture of a
+          // place, and an embed from another origin gets nothing it does
+          // not need to draw one.
+          sandbox=""
+          referrerPolicy="no-referrer"
+          className="pointer-events-none absolute inset-0 h-full w-full border-0"
+        />
+        {/* OSM draws its own marker, but only once the tiles have loaded.
+            This sits on top so the card reads as a location from the
+            first frame rather than as a grey rectangle that gains a
+            meaning a second later. */}
         <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-[62%] drop-shadow-[0_2px_3px_rgba(11,20,26,0.35)]">
           <PinGlyph />
         </span>
