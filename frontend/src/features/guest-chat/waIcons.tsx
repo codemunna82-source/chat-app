@@ -278,3 +278,12 @@ export function BellIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function ReplyIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M9 7 4 12l5 5" />
+      <path d="M4 12h9a6 6 0 0 1 6 6v1" />
+    </svg>
+  );
+}

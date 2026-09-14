@@ -40,6 +40,7 @@ import {
   PhoneIcon,
   PlayIcon,
   PlusIcon,
+  ReplyIcon,
   SendIcon,
   SmileyIcon,
   TickIcon,
@@ -369,7 +370,21 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [agentOnline, setAgentOnline] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
   const [uploading, setUploading] = useState(0);
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  /**
+   * The open photo, and the batch it belongs to.
+   *
+   * It used to be one object URL and nothing else, which made the viewer
+   * a dead end: you could look at a picture and that was all. It could
+   * not say WHICH message you were looking at, so there was nothing to
+   * reply to — and in an album of five, the two photos behind the "+2"
+   * had no tile at all and could not be opened by any means.
+   *
+   * Carrying the messages instead fixes both: the viewer knows the photo
+   * it is showing, so it can offer Reply, and it holds the whole batch,
+   * so the ones with no tile are reachable through the strip at the
+   * bottom.
+   */
+  const [viewer, setViewer] = useState<{ photos: ThreadMessage[]; index: number } | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -535,7 +550,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
   // Back closes the layer that is open rather than leaving the chat. Order
   // matters only in that each hook owns its own history entry; the browser
   // pops the most recently pushed, which is the innermost layer.
-  const closeLightbox = useCallback(() => setLightbox(null), []);
+  const closeViewer = useCallback(() => setViewer(null), []);
   const closeEmoji = useCallback(() => setEmojiOpen(false), []);
   const closeReactions = useCallback(() => setReactingTo(null), []);
   const closeAttach = useCallback(() => setAttachOpen(false), []);
@@ -545,7 +560,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
   useDismissOnBack(reactingTo !== null, closeReactions);
   useDismissOnBack(attachOpen, closeAttach);
   useDismissOnBack(menuOpen, closeMenu);
-  useDismissOnBack(lightbox !== null, closeLightbox);
+  useDismissOnBack(viewer !== null, closeViewer);
   useDismissOnBack(report !== null, closeReport);
 
   /**
@@ -1104,7 +1119,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
         id: tempId,
         text,
         createdAt: optimistic.createdAt,
-        replyToMessageId: replyTo?.id,
+        // Not a message that has no server id yet. A temp id means
+        // nothing to the server, which drops the quote and keeps the
+        // reply — so the cost is only ever a missing quote, but sending
+        // junk it has to discard is not the way to arrive at that. The
+        // media path has always guarded this; the viewer's Reply button
+        // is what made a still-uploading photo easy to aim at.
+        replyToMessageId: replyTo && !replyTo.pending ? replyTo.id : undefined,
         replyPreview: replyTo
           ? { id: replyTo.id, from: replyTo.from, preview: previewOfMessage(replyTo) }
           : undefined,
@@ -1814,7 +1835,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
                       token={token}
                       mine={m.from === 'me'}
                       newDay={!visible[i - 1] || dayLabel(visible[i - 1]!.createdAt) !== dayLabel(m.createdAt)}
-                      onOpen={setLightbox}
+                      // The whole batch, not the three that have tiles —
+                      // the viewer's strip is how the hidden ones are
+                      // reached at all.
+                      onOpen={(index) => setViewer({ photos: album, index })}
                     />
                   );
                 }
@@ -1938,7 +1962,11 @@ export default function GuestChatWindow({ token }: { token: string }) {
                               <UploadCover progress={m.uploadProgress} />
                             </span>
                           ) : (
-                            <ChatImage token={token} mediaId={m.mediaId!} onOpen={setLightbox} />
+                            <ChatImage
+                              token={token}
+                              mediaId={m.mediaId!}
+                              onOpen={() => setViewer({ photos: [m], index: 0 })}
+                            />
                           )
                         ) : isVoice ? (
                           <VoiceBubble token={token} mediaId={m.mediaId!} mine={mine} />
@@ -2499,27 +2527,22 @@ export default function GuestChatWindow({ token }: { token: string }) {
         />
       )}
 
-      {/* Full-size view. The object URL is the one the bubble already
-          holds, so opening a picture costs no second download. */}
-      {lightbox && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/92 p-4"
-          onClick={() => setLightbox(null)}
-          role="dialog"
-          aria-modal="true"
-          aria-label="Image"
-        >
-          <button
-            type="button"
-            onClick={() => setLightbox(null)}
-            aria-label="Close image"
-            className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white"
-          >
-            <CloseIcon className="h-5 w-5" />
-          </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={lightbox} alt="Shared image" className="max-h-full max-w-full object-contain" />
-        </div>
+      {viewer && (
+        <PhotoViewer
+          token={token}
+          photos={viewer.photos}
+          index={viewer.index}
+          onIndex={(index) => setViewer((v) => (v ? { ...v, index } : v))}
+          onClose={closeViewer}
+          onReply={(message) => {
+            // Closed first: the composer it focuses is behind this
+            // overlay, and a keyboard opening under a full-screen photo
+            // is a reply you cannot see yourself typing.
+            setViewer(null);
+            setReplyTo(message);
+            inputRef.current?.focus();
+          }}
+        />
       )}
     </main>
   );
@@ -2683,23 +2706,34 @@ function AlbumRow({
   token: string;
   mine: boolean;
   newDay: boolean;
-  onOpen: (url: string) => void;
+  /** The tapped photo's position in the WHOLE batch, not among the tiles. */
+  onOpen: (index: number) => void;
 }) {
   const pair = messages.length === 2;
   const tiles = messages.slice(0, pair ? 2 : ALBUM_MAX_TILES);
   const hidden = messages.length - tiles.length;
   const last = messages[messages.length - 1]!;
 
-  const tile = (m: ThreadMessage, more: number, className: string) => (
+  const tile = (m: ThreadMessage, index: number, more: number, className: string) => (
     <span key={m.id} className={`relative block overflow-hidden rounded-[3px] ${className}`}>
       {m.localUrl ? (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={m.localUrl} alt="" className="h-full w-full object-cover" />
+        <img
+          src={m.localUrl}
+          alt=""
+          onClick={() => onOpen(index)}
+          className="h-full w-full cursor-zoom-in object-cover"
+        />
       ) : m.mediaId ? (
-        <ChatImage token={token} mediaId={m.mediaId} onOpen={onOpen} tile />
+        <ChatImage token={token} mediaId={m.mediaId} onOpen={() => onOpen(index)} tile />
       ) : null}
       {more > 0 && (
-        <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-[20px] font-semibold text-white">
+        // Over the last tile, and it opens the batch at the first photo
+        // this grid does NOT show — which is what a "+2" is promising.
+        <span
+          onClick={() => onOpen(index + 1)}
+          className="absolute inset-0 flex cursor-zoom-in items-center justify-center bg-black/45 text-[20px] font-semibold text-white"
+        >
           +{more}
         </span>
       )}
@@ -2724,14 +2758,14 @@ function AlbumRow({
         >
           {pair ? (
             <span className="flex gap-[2px]">
-              {tiles.map((m) => tile(m, 0, 'h-[112px] w-1/2'))}
+              {tiles.map((m, i) => tile(m, i, 0, 'h-[112px] w-1/2'))}
             </span>
           ) : (
             <>
-              {tile(tiles[0]!, 0, 'h-[140px] w-full')}
+              {tile(tiles[0]!, 0, 0, 'h-[140px] w-full')}
               <span className="mt-[2px] flex gap-[2px]">
                 {tiles.slice(1).map((m, i) =>
-                  tile(m, i === tiles.length - 2 ? hidden : 0, 'h-[112px] w-1/2'),
+                  tile(m, i + 1, i === tiles.length - 2 ? hidden : 0, 'h-[112px] w-1/2'),
                 )}
               </span>
             </>
@@ -2746,35 +2780,198 @@ function AlbumRow({
   );
 }
 
-function ChatImage({
+/**
+ * One photo, full screen, with the batch it came from underneath it.
+ *
+ * Replaces a lightbox that took a single object URL. That was enough to
+ * look at a picture and nothing else: it could not name the message it
+ * was showing, so there was no reply; and the photos behind an album's
+ * "+2" were never rendered, so there was no tile to tap and no way to
+ * open them at all. They were in the thread and out of reach.
+ *
+ * Both follow from carrying the messages rather than a string.
+ *
+ * The strip is TAPPED, not swiped. A horizontal swipe over a photo is
+ * the gesture the browser already uses for back-navigation on iOS, and
+ * on Android it fights the pinch-and-pan people expect on a picture.
+ * Tapping is unambiguous and, unlike a swipe, it also says how many
+ * there are.
+ */
+function PhotoViewer({
   token,
-  mediaId,
-  onOpen,
-  tile = false,
+  photos,
+  index,
+  onIndex,
+  onClose,
+  onReply,
 }: {
   token: string;
-  mediaId: string;
-  onOpen: (url: string) => void;
-  /** Fills a fixed album cell instead of sizing itself to the photo. */
-  tile?: boolean;
+  photos: ThreadMessage[];
+  index: number;
+  onIndex: (index: number) => void;
+  onClose: () => void;
+  onReply: (message: ThreadMessage) => void;
 }) {
-  // The demo has no media route behind it, so its images arrive as a src
-  // already usable by the tag — the one branch the canned thread needs
-  // inside otherwise untouched rendering.
-  const direct = mediaId.startsWith('demo:') ? mediaId.slice('demo:'.length) : null;
+  // Defensive: a batch can shrink under the viewer if a message is
+  // deleted while it is open, and an index past the end would blank it.
+  const safeIndex = Math.min(index, photos.length - 1);
+  const current = photos[safeIndex];
+  if (!current) return null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex flex-col bg-black/92"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Image"
+    >
+      {/* Top bar. Its own row rather than buttons floated over the photo:
+          a portrait picture fills the screen, and a control sitting on
+          top of it is a control you cannot see. */}
+      <div className="flex items-center justify-between px-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-white">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close image"
+          className="flex h-10 w-10 items-center justify-center rounded-full active:bg-white/10"
+        >
+          <CloseIcon className="h-5 w-5" />
+        </button>
+
+        {photos.length > 1 && (
+          <span className="text-[13px] tabular-nums text-white/70">
+            {safeIndex + 1} / {photos.length}
+          </span>
+        )}
+
+        <button
+          type="button"
+          onClick={() => onReply(current)}
+          aria-label="Reply to this photo"
+          className="flex h-10 items-center gap-1.5 rounded-full px-3 text-[14px] font-medium active:bg-white/10"
+        >
+          <ReplyIcon className="h-5 w-5" />
+          Reply
+        </button>
+      </div>
+
+      {/* The photo. Tapping the backdrop closes; tapping the picture does
+          not, or every attempt to look closely dismisses it. */}
+      <div className="flex min-h-0 flex-1 items-center justify-center p-2" onClick={onClose}>
+        <ViewerImage
+          key={current.id}
+          token={token}
+          message={current}
+          onClick={(e) => e.stopPropagation()}
+        />
+      </div>
+
+      {photos.length > 1 && (
+        <div className="flex gap-2 overflow-x-auto px-3 pb-[calc(0.75rem+env(safe-area-inset-bottom,0px))] pt-2">
+          {photos.map((m, i) => (
+            <button
+              key={m.id}
+              type="button"
+              onClick={() => onIndex(i)}
+              aria-label={`Photo ${i + 1}`}
+              aria-current={i === safeIndex}
+              className={[
+                'relative h-12 w-12 shrink-0 overflow-hidden rounded-[4px] transition',
+                i === safeIndex ? 'ring-2 ring-white' : 'opacity-55',
+              ].join(' ')}
+            >
+              <ViewerThumb token={token} message={m} />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The full-size photo inside the viewer.
+ *
+ * Fetches its own copy rather than being handed the bubble's object URL.
+ * It has to: the photos behind a "+2" have no bubble, so there is no URL
+ * to hand over — and the request is the same one the browser already
+ * has in its HTTP cache for the ones that do, so nothing is downloaded
+ * twice.
+ */
+function ViewerImage({
+  token,
+  message,
+  onClick,
+}: {
+  token: string;
+  message: ThreadMessage;
+  onClick: (e: React.MouseEvent) => void;
+}) {
+  const { url, failed } = useMediaObjectUrl(token, message, 960);
+
+  if (failed) {
+    return <p className="text-[14px] text-white/60">Image unavailable</p>;
+  }
+  if (!url) {
+    return <div className="h-40 w-40 animate-pulse rounded-lg bg-white/10" />;
+  }
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={url}
+      alt="Shared image"
+      onClick={onClick}
+      className="max-h-full max-w-full object-contain"
+    />
+  );
+}
+
+/** A strip thumbnail — the small width, because that is all it is. */
+function ViewerThumb({ token, message }: { token: string; message: ThreadMessage }) {
+  const { url } = useMediaObjectUrl(token, message, 480);
+  if (!url) return <span className="block h-full w-full animate-pulse bg-white/15" />;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={url} alt="" className="h-full w-full object-cover" />
+  );
+}
+
+/**
+ * One photo's displayable URL, whatever stage it is at.
+ *
+ * Three cases, and they all have to work in the viewer as well as in a
+ * bubble: a file still uploading has a local URL and no media id; the
+ * canned demo thread carries its src inline behind a `demo:` prefix; and
+ * a stored photo has to be fetched with the link token, because an
+ * <img> tag cannot send an Authorization header.
+ *
+ * The object URL is revoked on unmount. Without that, every photo the
+ * customer opens stays in memory for the life of the tab.
+ */
+function useMediaObjectUrl(
+  token: string,
+  message: Pick<ThreadMessage, 'mediaId' | 'localUrl'>,
+  width: 480 | 960,
+): { url: string | null; failed: boolean } {
+  const mediaId = message.mediaId ?? null;
+  const direct =
+    message.localUrl ?? (mediaId?.startsWith('demo:') ? mediaId.slice('demo:'.length) : null);
+
   const [url, setUrl] = useState<string | null>(direct);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
-    if (direct) return;
+    if (direct || !mediaId) return;
 
     let cancelled = false;
     let created: string | null = null;
 
-    // 960 rather than the full file: the bubble is a few hundred
-    // pixels wide, and this is still enough for the lightbox on a
-    // phone, so opening a photo costs no second download.
-    fetchMediaObjectUrl(token, mediaId, 960)
+    // No `setFailed(false)` here to clear a previous failure: every
+    // caller is keyed on the message id, so a different photo is a
+    // different component instance with its own fresh state — and
+    // setting state straight from an effect body costs a second render
+    // on every image for a case that cannot happen.
+    fetchMediaObjectUrl(token, mediaId, width)
       .then((objectUrl) => {
         if (cancelled) {
           URL.revokeObjectURL(objectUrl);
@@ -2791,7 +2988,30 @@ function ChatImage({
       cancelled = true;
       if (created) URL.revokeObjectURL(created);
     };
-  }, [token, mediaId, direct]);
+  }, [token, mediaId, direct, width]);
+
+  return { url: direct ?? url, failed };
+}
+
+function ChatImage({
+  token,
+  mediaId,
+  onOpen,
+  tile = false,
+}: {
+  token: string;
+  mediaId: string;
+  /** Opens the viewer. It fetches its own copy, so no url is passed up. */
+  onOpen: () => void;
+  /** Fills a fixed album cell instead of sizing itself to the photo. */
+  tile?: boolean;
+}) {
+  // 960 rather than the full file: the bubble is a few hundred pixels
+  // wide, and this is still enough for the viewer on a phone, so opening
+  // a photo costs no second download. The demo's inline src and the
+  // revoke-on-unmount both live in the hook — this used to be a second
+  // copy of that logic, and two copies of a cleanup rule is one too many.
+  const { url, failed } = useMediaObjectUrl(token, { mediaId }, 960);
 
   if (failed) {
     return (
@@ -2816,7 +3036,7 @@ function ChatImage({
     <img
       src={url}
       alt="Shared image"
-      onClick={() => onOpen(url)}
+      onClick={onOpen}
       className={
         tile
           ? 'h-full w-full cursor-zoom-in object-cover'
