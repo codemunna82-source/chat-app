@@ -380,7 +380,6 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const bottomRef = useRef<HTMLDivElement | null>(null);
   /** Counter behind the temporary ids of unacknowledged messages. */
   const draftIdRef = useRef(0);
   /**
@@ -851,6 +850,25 @@ export default function GuestChatWindow({ token }: { token: string }) {
     };
   }, [flushOutbox]);
 
+  /**
+   * Scrolls the transcript, and nothing else.
+   *
+   * This was `bottomRef.scrollIntoView()`, which walks EVERY scrollable
+   * ancestor and moves each one until the element is in view. On iOS
+   * Safari the document is one of those ancestors, so pressing
+   * jump-to-latest scrolled the PAGE instead of the thread — the customer
+   * asked for the newest message and watched the whole window travel
+   * upwards.
+   *
+   * The container is the only thing that should move here, so it is the
+   * only thing this touches.
+   */
+  const pinToBottom = useCallback((smooth = false) => {
+    const el = transcriptRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+  }, []);
+
   // ---- keep the newest message in view ------------------------------
   useEffect(() => {
     // Not while older messages are being spliced in above — that is a
@@ -858,8 +876,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
     // what the customer just asked for. Not either when they have
     // scrolled up to read: the jump-to-latest button is there for that.
     if (loadingOlder || !atBottom) return;
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, [messages.length, loadingOlder, atBottom, agentTyping, emojiOpen]);
+    pinToBottom(true);
+  }, [messages.length, loadingOlder, atBottom, agentTyping, emojiOpen, pinToBottom]);
 
   /**
    * Keeps the view pinned to the bottom while content grows underneath it.
@@ -892,11 +910,11 @@ export default function GuestChatWindow({ token }: { token: string }) {
       // 'auto', not 'smooth': this fires while things are still settling,
       // and a smooth scroll restarted every few milliseconds never
       // arrives.
-      bottomRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      pinToBottom();
     });
     observer.observe(content);
     return () => observer.disconnect();
-  }, [phase]);
+  }, [phase, pinToBottom]);
 
   /**
    * Paging waits for the opening jump to the newest message to finish.
@@ -916,8 +934,19 @@ export default function GuestChatWindow({ token }: { token: string }) {
   }, [phase]);
 
   const scrollToBottom = useCallback(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-  }, []);
+    // Instant, not smooth. A smooth scroll emits scroll events the whole
+    // way down, and the first one that lands within 120px of the end
+    // flips `atBottom` — which re-runs the effect above and starts a
+    // second animation on top of the one still running. Instant arrives
+    // once and stays.
+    pinToBottom();
+    // A photo still decoding grows the thread AFTER the scroll position
+    // has been worked out, which leaves the view short of the real bottom
+    // — the exact gap this button exists to close. Re-pinned once this
+    // frame's layout lands, and again after a late decode.
+    requestAnimationFrame(() => pinToBottom());
+    window.setTimeout(() => pinToBottom(), 150);
+  }, [pinToBottom]);
 
   const stopTyping = useCallback(() => {
     if (typingIdleRef.current) clearTimeout(typingIdleRef.current);
@@ -2062,7 +2091,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
               onBlock={() => setReport({ message: null, intent: 'block' })}
             />
 
-            <div ref={bottomRef} className="h-1" />
+            {/* Trailing breathing room under the last bubble. No ref:
+                the scroll is done on the container itself now. */}
+            <div className="h-1" />
           </div>
         </div>
 
