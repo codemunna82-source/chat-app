@@ -385,6 +385,28 @@ export default function GuestChatWindow({ token }: { token: string }) {
    * bottom.
    */
   const [viewer, setViewer] = useState<{ photos: ThreadMessage[]; index: number } | null>(null);
+
+  /**
+   * What the connection is actually doing, measured rather than assumed.
+   *
+   * Twice now a latency question has been answered with arithmetic —
+   * "the server is in Oregon, so the network is about 120ms" — and twice
+   * the arithmetic was wrong by a multiple. This is the number itself.
+   *
+   * `rtt` is a full round trip timed START TO FINISH IN THIS BROWSER, on
+   * one clock. Comparing a server timestamp against Date.now() here would
+   * look more precise and would silently report the difference between
+   * two clocks that were never synchronised.
+   *
+   * `transport` matters as much: socket.io falls back to HTTP polling
+   * when a WebSocket cannot be established, and polling adds delay of its
+   * own. A chat that "feels slow" because it is not really on a socket
+   * looks identical, from the outside, to one that is far away.
+   *
+   * Shown only with ?debug=1 on the link; otherwise it goes to the
+   * console and nowhere else. A customer has no use for it.
+   */
+  const [link, setLink] = useState<{ transport: string; rtt: number | null } | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -747,9 +769,38 @@ export default function GuestChatWindow({ token }: { token: string }) {
       transports: ['websocket', 'polling'],
     });
 
+    /**
+     * One round trip, timed here and nowhere else.
+     *
+     * Re-read on every measurement rather than captured once: socket.io
+     * upgrades from polling to WebSocket after connecting, so a name read
+     * at connect time can describe a transport that is already gone.
+     */
+    const measure = () => {
+      const started = performance.now();
+      const name = s.io.engine?.transport?.name ?? 'unknown';
+      let answered = false;
+      s.timeout(8000).emit('ping:check', () => {
+        if (answered) return;
+        answered = true;
+        const rtt = Math.round(performance.now() - started);
+        setLink({ transport: name, rtt });
+        console.log(`[perf] socket ${name} rtt=${rtt}ms`);
+      });
+      // An older server has no handler for this, so the ack never comes.
+      // The timeout above fires the callback with an error argument we
+      // ignore; what matters is that the readout says so instead of
+      // showing a stale number forever.
+      setLink((prev) => prev ?? { transport: name, rtt: null });
+    };
+
     s.on('connect', () => {
       setConnected(true);
       setOffline(false);
+      // Not immediately: the upgrade from polling to WebSocket happens in
+      // the first moments of a connection, and measuring before it lands
+      // reports the transport that is on its way out.
+      window.setTimeout(measure, 1200);
       // The reliable "you are reachable again" signal — see the online
       // listener above for why navigator.onLine alone is not enough.
       void flushOutbox();
@@ -816,9 +867,14 @@ export default function GuestChatWindow({ token }: { token: string }) {
     });
     s.on('typing:stop', () => setAgentTyping(false));
 
+    // Every half minute, because one reading on a mobile network says
+    // very little — the number people actually live with is the spread.
+    const repeat = window.setInterval(measure, 30_000);
+
     setSocket(s);
 
     return () => {
+      window.clearInterval(repeat);
       s.off('message:new');
       s.off('message:status');
       s.off('agent:presence');
@@ -2525,6 +2581,17 @@ export default function GuestChatWindow({ token }: { token: string }) {
           onClose={() => setReport(null)}
           onBlockedChange={setBlockedState}
         />
+      )}
+
+      {/* Only with ?debug=1 on the link. Fixed to the corner rather than
+          in the layout: it must not move a single pixel of the chat, or
+          it is measuring a page that is not the one customers see. */}
+      {link && typeof window !== 'undefined' && window.location.search.includes('debug=1') && (
+        <div className="pointer-events-none fixed left-2 top-2 z-[70] rounded bg-black/75 px-2 py-1 font-mono text-[11px] leading-tight text-white">
+          {link.transport}
+          {' · '}
+          {link.rtt === null ? 'rtt —' : `rtt ${link.rtt}ms`}
+        </div>
       )}
 
       {viewer && (
