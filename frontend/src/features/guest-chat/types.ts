@@ -10,7 +10,17 @@ export interface GuestMessage {
   mediaId?: string;
   createdAt: string;
   /** The message this one answers, already flattened to one line by the server. */
-  replyTo?: { id: string; from: 'me' | 'business'; preview: string };
+  replyTo?: {
+    id: string;
+    from: 'me' | 'business';
+    preview: string;
+    /** What kind of message it was, for the icon beside the line. Absent
+     *  from an older server, which simply means no icon. */
+    type?: string;
+    /** The quoted PHOTO. Present only for an image that still exists, so
+     *  a reply to a picture shows the picture rather than the word. */
+    mediaId?: string;
+  };
   /** Emoji reactions on this message. */
   reactions?: { emoji: string; mine: boolean }[];
   /** Present on `type: 'location'` — where to draw the pin. */
@@ -126,7 +136,17 @@ export interface RealtimeMessage {
   /** On a reaction row, the message it is attached to. */
   replyToMessageId?: string;
   /** Present when the server's realtime payload carries them; older builds send neither. */
-  replyTo?: { id: string; from: 'me' | 'business'; preview: string };
+  replyTo?: {
+    id: string;
+    from: 'me' | 'business';
+    preview: string;
+    /** What kind of message it was, for the icon beside the line. Absent
+     *  from an older server, which simply means no icon. */
+    type?: string;
+    /** The quoted PHOTO. Present only for an image that still exists, so
+     *  a reply to a picture shows the picture rather than the word. */
+    mediaId?: string;
+  };
   reactions?: { emoji: string; mine: boolean }[];
   location?: GuestLocation;
   /** The workspace's own status enum — QUEUED | SENT | DELIVERED | READ | FAILED. */

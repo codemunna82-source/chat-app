@@ -288,6 +288,40 @@ function MessageTicks({ pending, status }: { pending?: boolean; status?: ThreadM
  * spinner is kept only for the case the browser reports no total, where
  * an honest "working" beats a bar invented out of nothing.
  */
+/**
+ * The DOM id of one message row.
+ *
+ * A function rather than a template literal at each site, because a jump
+ * that looks a row up by a slightly different string finds nothing and
+ * reports "scroll up to load that message" about a message that is
+ * already on screen.
+ */
+function rowDomId(messageId: string): string {
+  return `wa-msg-${messageId}`;
+}
+
+/**
+ * The photo inside a reply's quote.
+ *
+ * Asks for the 480px copy — the same one an album cell uses, so a quote
+ * of a picture already on screen is served from the browser's cache
+ * rather than downloaded again.
+ *
+ * Renders nothing until it has the bytes. A spinner in a 38px box is a
+ * grey smear, and the line beside it already says a photo is there.
+ */
+function QuotedPhoto({ token, mediaId }: { token: string; mediaId: string }) {
+  const { url } = useMediaObjectUrl(token, { mediaId }, 480);
+  return (
+    <span className="block h-[38px] w-[38px] shrink-0 self-center overflow-hidden rounded-[4px] bg-black/10">
+      {url ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={url} alt="" className="h-full w-full object-cover" />
+      ) : null}
+    </span>
+  );
+}
+
 function UploadCover({ progress }: { progress?: number }) {
   const known = typeof progress === 'number' && progress > 0;
   const pct = Math.round(Math.min(1, Math.max(0, progress ?? 0)) * 100);
@@ -573,6 +607,51 @@ export default function GuestChatWindow({ token }: { token: string }) {
    */
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  /** The message a quote just jumped to, marked until the timer clears it. */
+  const [jumpedTo, setJumpedTo] = useState<string | null>(null);
+  const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /**
+   * Scrolls the transcript to one message and marks it briefly.
+   *
+   * The container is scrolled directly rather than through
+   * scrollIntoView, for the same reason pinToBottom is: scrollIntoView
+   * walks EVERY scrollable ancestor, and on iOS Safari the document is
+   * one of them — so it scrolls the page out from under the chat.
+   *
+   * The mark is not decoration. A thread that jumps somewhere and does
+   * nothing else leaves the reader working out which of the bubbles on
+   * screen was the point, which on a run of similar messages is a real
+   * question.
+   */
+  const jumpTo = useCallback((messageId: string) => {
+    const container = transcriptRef.current;
+    const row = document.getElementById(rowDomId(messageId));
+    if (!container || !row) {
+      // Above the page that is loaded. Saying so beats a tap that
+      // silently does nothing.
+      flashRef.current?.('Scroll up to load that message first.');
+      return;
+    }
+    const top = row.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    // Roughly a third down rather than at the very top, so what came
+    // BEFORE the quoted message is visible too — which is usually why
+    // someone went looking for it.
+    container.scrollTo({ top: container.scrollTop + top - container.clientHeight * 0.3, behavior: 'smooth' });
+
+    setJumpedTo(messageId);
+    if (jumpTimerRef.current) clearTimeout(jumpTimerRef.current);
+    jumpTimerRef.current = setTimeout(() => setJumpedTo(null), 2000);
+  }, []);
+
+  // A pending mark must die with the component, or it fires setState on
+  // something that is gone.
+  useEffect(
+    () => () => {
+      if (jumpTimerRef.current) clearTimeout(jumpTimerRef.current);
+    },
+    [],
+  );
 
   const onCall = call.phase === 'connecting' || call.phase === 'active';
   /**
@@ -2069,7 +2148,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 // its text line, and rendering it as a pin at (0, 0) would
                 // be worse than rendering it as the sentence it is.
                 const place = !revoked && m.type === 'location' ? m.location : undefined;
-                const highlighted = report?.message?.id === m.id;
+                const highlighted = report?.message?.id === m.id || jumpedTo === m.id;
                 const hasReactions = (m.reactions?.length ?? 0) > 0;
                 const stamp = (
                   <>
@@ -2089,6 +2168,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
                     )}
 
                     <div
+                      /* The anchor a jump scrolls to, and deliberately
+                         NOT the <li> above: that is `display: contents`,
+                         which generates no box at all, so asking it where
+                         it is returns nothing useful and the jump would
+                         land at the top of the thread every time. */
+                      id={rowDomId(m.id)}
                       className={[
                         // Not wa-row while this message's reaction row is
                         // open: content-visibility's paint containment clips
@@ -2137,18 +2222,51 @@ export default function GuestChatWindow({ token }: { token: string }) {
                              its leading edge, the way the app it copies does
                              — a quote above the bubble reads as a separate
                              message. */
-                          <div
-                            className={`mb-1 overflow-hidden rounded-[5px] border-l-[3px] px-2 py-1 text-[13px] leading-[17px] ${
+                          <button
+                            type="button"
+                            /* Tapping the quote goes to what it quotes —
+                               the thing every messenger does, and the
+                               reason a quote is worth rendering at all: a
+                               reply to something from twenty messages ago
+                               is unreadable until you can get back to it.
+
+                               Its own button rather than the whole
+                               bubble, because a plain tap on a bubble
+                               already means other things here (opening a
+                               photo, playing a voice note), and one
+                               gesture that sometimes scrolls the thread
+                               away instead is the worst kind of
+                               surprise. */
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              jumpTo(m.replyTo!.id);
+                            }}
+                            aria-label="Go to the quoted message"
+                            className={`mb-1 flex w-full items-stretch gap-2 overflow-hidden rounded-[5px] border-l-[3px] pl-2 pr-1 py-1 text-left text-[13px] leading-[17px] transition active:opacity-70 ${
                               m.replyTo.from === 'me'
                                 ? 'border-[var(--wa-accent)] bg-black/[0.06]'
                                 : 'border-[#53bdeb] bg-black/[0.05]'
                             }`}
                           >
-                            <p className="truncate font-medium text-[12px] text-[var(--wa-accent)]">
-                              {m.replyTo.from === 'me' ? 'You' : title}
-                            </p>
-                            <p className="line-clamp-2 text-[var(--wa-meta)]">{m.replyTo.preview}</p>
-                          </div>
+                            <span className="min-w-0 flex-1 self-center">
+                              <span className="block truncate font-medium text-[12px] text-[var(--wa-accent)]">
+                                {m.replyTo.from === 'me' ? 'You' : title}
+                              </span>
+                              <span className="line-clamp-2 block text-[var(--wa-meta)]">
+                                {m.replyTo.preview}
+                              </span>
+                            </span>
+                            {/* The quoted photo itself. Without it a reply
+                                to a picture said only "[photo]", which in
+                                a thread of nine of them answers nothing. */}
+                            {m.replyTo.mediaId && (
+                              <QuotedPhoto
+                                key={m.replyTo.mediaId}
+                                token={token}
+                                mediaId={m.replyTo.mediaId}
+                              />
+                            )}
+                          </button>
                         )}
 
                         {revoked ? (
