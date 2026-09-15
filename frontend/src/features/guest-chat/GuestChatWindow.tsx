@@ -56,6 +56,7 @@ import { NotifyBar } from './NotifyBar';
 import { enablePush, pushSupport, refreshPush, type PushSupport } from './pushClient';
 import { canRecordAudio, useVoiceRecorder } from './useVoiceRecorder';
 import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
+import { DeleteSheet } from './DeleteSheet';
 import { uploadVoiceNote } from './guestApi';
 import {
   realtimeToGuestMessage,
@@ -447,6 +448,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [replyTo, setReplyTo] = useState<ThreadMessage | null>(null);
   /** Which message has its reaction row open. */
   const [reactingTo, setReactingTo] = useState<string | null>(null);
+  /** The message whose delete sheet is open. */
+  const [deleting, setDeleting] = useState<ThreadMessage | null>(null);
   /** The `+` tray. */
   const [attachOpen, setAttachOpen] = useState(false);
   /** True while the browser is resolving a position fix, which can take seconds. */
@@ -578,12 +581,14 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const closeAttach = useCallback(() => setAttachOpen(false), []);
   const closeMenu = useCallback(() => setMenuOpen(false), []);
   const closeReport = useCallback(() => setReport(null), []);
+  const closeDeleting = useCallback(() => setDeleting(null), []);
   useDismissOnBack(emojiOpen, closeEmoji);
   useDismissOnBack(reactingTo !== null, closeReactions);
   useDismissOnBack(attachOpen, closeAttach);
   useDismissOnBack(menuOpen, closeMenu);
   useDismissOnBack(viewer !== null, closeViewer);
   useDismissOnBack(report !== null, closeReport);
+  useDismissOnBack(deleting !== null, closeDeleting);
 
   /**
    * The two gestures a bubble answers to.
@@ -840,6 +845,44 @@ export default function GuestChatWindow({ token }: { token: string }) {
       setAgentTyping(false);
     });
 
+    /**
+     * A message that changed after it was sent — today, only one that was
+     * taken back.
+     *
+     * It arrives for both directions: the business withdrawing one of
+     * theirs, and this customer's own revoke echoing back from another
+     * tab they left open. Applied by replacing the row rather than
+     * removing it, because the business sees a tombstone too and a
+     * thread that silently drops a message reads as a bug to whoever is
+     * looking at the other half of the conversation.
+     *
+     * Nothing is done for an update to a message this window has never
+     * loaded: it is above the page the customer is looking at, and the
+     * fetch that eventually reaches it already returns it withdrawn.
+     */
+    s.on('message:updated', (payload: RealtimeMessage) => {
+      if (!payload?.id || !payload.revokedAt) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === payload.id
+            ? {
+                ...m,
+                revokedAt: payload.revokedAt,
+                revokedBy: payload.revokedBy,
+                text: undefined,
+                mediaId: undefined,
+                hasMedia: false,
+                location: undefined,
+                localUrl: undefined,
+                reactions: undefined,
+              }
+            : m,
+        ),
+      );
+      setReplyTo((prev) => (prev?.id === payload.id ? null : prev));
+      setDeleting((prev) => (prev?.id === payload.id ? null : prev));
+    });
+
     // The other half of the ticks. The window already tells the server
     // when the CUSTOMER reads; this is the server telling the window when
     // an agent has read theirs, so a message does not sit on two grey
@@ -876,6 +919,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
     return () => {
       window.clearInterval(repeat);
       s.off('message:new');
+      s.off('message:updated');
       s.off('message:status');
       s.off('agent:presence');
       s.off('typing:start');
@@ -1540,6 +1584,47 @@ export default function GuestChatWindow({ token }: { token: string }) {
     [token, demo],
   );
 
+  /**
+   * What the window does once the server has accepted a delete.
+   *
+   * 'me' drops the row outright — the server will not send it again, so
+   * there is nothing to reconcile with. 'everyone' leaves the row in
+   * place as a tombstone rather than removing it, because the business
+   * sees one too and a thread that silently loses a message reads as a
+   * bug to whoever is looking at the other half of it.
+   *
+   * The socket event for the same revoke arrives moments later and does
+   * exactly this again, which is why it is written as a replacement
+   * rather than a toggle.
+   */
+  const applyDeleted = useCallback((message: ThreadMessage, scope: 'me' | 'everyone') => {
+    setMessages((prev) =>
+      scope === 'me'
+        ? prev.filter((m) => m.id !== message.id)
+        : prev.map((m) =>
+            m.id === message.id
+              ? {
+                  ...m,
+                  revokedAt: new Date().toISOString(),
+                  revokedBy: 'customer' as const,
+                  // The server really deleted these; a bubble still
+                  // holding its text after "delete for everyone" is the
+                  // one thing this must never look like.
+                  text: undefined,
+                  mediaId: undefined,
+                  hasMedia: false,
+                  location: undefined,
+                  localUrl: undefined,
+                  reactions: undefined,
+                }
+              : m,
+          ),
+    );
+    // A reply still pointing at it would keep the customer answering a
+    // message that is no longer there.
+    setReplyTo((prev) => (prev?.id === message.id ? null : prev));
+  }, []);
+
   const insertEmoji = useCallback((emoji: string) => {
     const field = inputRef.current;
     setDraft((prev) => {
@@ -1909,13 +1994,20 @@ export default function GuestChatWindow({ token }: { token: string }) {
                   !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
                 // A local preview counts as an image too: the file is on
                 // screen before the server has an id for it.
-                const isImage = (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'image';
-                const isVoice = Boolean(m.mediaId) && m.type === 'audio';
+                // Taken back by whoever sent it. The server clears the
+                // content when it does that, so every branch below would
+                // already fall through to nothing — this is what puts the
+                // tombstone in the empty bubble, and what stops a payload
+                // from an older server rendering a photo it should not.
+                const revoked = Boolean(m.revokedAt);
+                const isImage =
+                  !revoked && (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'image';
+                const isVoice = !revoked && Boolean(m.mediaId) && m.type === 'audio';
                 // Only when the coordinates actually came through. A
                 // location message from before this field existed still has
                 // its text line, and rendering it as a pin at (0, 0) would
                 // be worse than rendering it as the sentence it is.
-                const place = m.type === 'location' ? m.location : undefined;
+                const place = !revoked && m.type === 'location' ? m.location : undefined;
                 const highlighted = report?.message?.id === m.id;
                 const hasReactions = (m.reactions?.length ?? 0) > 0;
                 const stamp = (
@@ -1998,7 +2090,25 @@ export default function GuestChatWindow({ token }: { token: string }) {
                           </div>
                         )}
 
-                        {isImage ? (
+                        {revoked ? (
+                          /* The line both sides read. Italic and dimmed
+                             rather than styled as a normal message,
+                             because it is not one — it is the shape a
+                             message used to occupy, kept so the thread
+                             still reads as the conversation that
+                             happened. The icon is what makes it legible
+                             at a glance among real bubbles. */
+                          <p className="flex items-center gap-1.5 pr-[52px] text-[14.2px] italic leading-[19px] opacity-60">
+                            <BlockIcon className="h-[15px] w-[15px] shrink-0" />
+                            {m.revokedBy === 'customer'
+                              ? mine
+                                ? 'You deleted this message'
+                                : 'This message was deleted'
+                              : mine
+                                ? 'This message was deleted'
+                                : `${title} deleted this message`}
+                          </p>
+                        ) : isImage ? (
                           m.localUrl ? (
                             // Still going up: the picked file itself,
                             // under a cover that says how far it has got.
@@ -2128,32 +2238,54 @@ export default function GuestChatWindow({ token }: { token: string }) {
                               </button>
                             ))}
 
-                            {/* Reporting one message lives here, at the end
-                                of the row a long press already opens, for
-                                the same reason the emoji do: it is about
-                                THIS message, and any other entry point
-                                would make the customer describe which one
-                                in words. Only messages from the business —
-                                reporting your own is not a thing anyone
-                                means to do. */}
-                            {m.from === 'business' && !m.pending && (
+                            {!m.pending && !m.revokedAt && (
                               <>
                                 <span
                                   className="mx-0.5 h-5 w-px shrink-0 bg-[var(--wa-divider)]"
                                   aria-hidden
                                 />
+                                {/* On every message, not only the
+                                    customer's own: "delete for me" tidies
+                                    this window and applies just as much to
+                                    something the business sent. Which of
+                                    the two deletes is actually on offer is
+                                    the sheet's decision, not this
+                                    button's. */}
                                 <button
                                   type="button"
                                   onClick={() => {
                                     setReactingTo(null);
-                                    setReport({ message: m, intent: 'report' });
+                                    setDeleting(m);
                                   }}
-                                  aria-label="Report this message"
-                                  title="Report this message"
+                                  aria-label="Delete this message"
+                                  title="Delete this message"
                                   className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
                                 >
-                                  <FlagIcon className="h-[18px] w-[18px]" />
+                                  <TrashIcon className="h-[18px] w-[18px]" />
                                 </button>
+                                {/* Reporting one message lives here, at
+                                    the end of the row a long press already
+                                    opens, for the same reason the emoji do:
+                                    it is about THIS message, and any other
+                                    entry point would make the customer
+                                    describe which one in words. Only
+                                    messages from the business — reporting
+                                    your own is not a thing anyone means to
+                                    do. */}
+                                {m.from === 'business' && (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setReactingTo(null);
+                                      setReport({ message: m, intent: 'report' });
+                                    }}
+                                    aria-label="Report this message"
+                                    title="Report this message"
+                                    className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
+                                  >
+                                    <FlagIcon className="h-[18px] w-[18px]" />
+                                  </button>
+                                )}
                               </>
                             )}
                           </div>
@@ -2580,6 +2712,16 @@ export default function GuestChatWindow({ token }: { token: string }) {
           intent={report.intent}
           onClose={() => setReport(null)}
           onBlockedChange={setBlockedState}
+        />
+      )}
+
+      {deleting && (
+        <DeleteSheet
+          token={token}
+          demo={demo}
+          message={deleting}
+          onClose={closeDeleting}
+          onDeleted={(scope) => applyDeleted(deleting, scope)}
         />
       )}
 

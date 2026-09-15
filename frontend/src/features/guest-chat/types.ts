@@ -24,6 +24,23 @@ export interface GuestMessage {
    * everything else collapses to.
    */
   status?: 'sent' | 'delivered' | 'read';
+  /**
+   * Which wire it travelled on. A message the customer sent from
+   * WhatsApp appears in this window too and can never be withdrawn from
+   * it — this is what tells the two apart. Absent from an older server,
+   * which the window reads as WhatsApp: the safe answer, since it only
+   * ever withholds a button.
+   */
+  channel?: 'whatsapp' | 'web';
+  /**
+   * Set when whoever sent this message took it back. `text`, `mediaId`
+   * and `location` are empty on such a message because the server really
+   * deleted the content — a tombstone is all there is left to draw.
+   */
+  revokedAt?: string;
+  /** Which side withdrew it, so the line can read "You deleted this
+   *  message" instead of the neutral wording. */
+  revokedBy?: 'agent' | 'customer';
 }
 
 /** A shared place. `name` and `address` are absent for a raw browser fix. */
@@ -114,6 +131,11 @@ export interface RealtimeMessage {
   location?: GuestLocation;
   /** The workspace's own status enum — QUEUED | SENT | DELIVERED | READ | FAILED. */
   status?: string;
+  /** See GuestMessage.channel. */
+  channel?: 'whatsapp' | 'web';
+  /** Present once the message has been withdrawn — see GuestMessage. */
+  revokedAt?: string;
+  revokedBy?: 'agent' | 'customer';
 }
 
 export function realtimeToGuestMessage(m: RealtimeMessage): GuestMessage {
@@ -128,6 +150,9 @@ export function realtimeToGuestMessage(m: RealtimeMessage): GuestMessage {
     replyTo: m.replyTo,
     reactions: m.reactions,
     location: m.location,
+    channel: m.channel,
+    revokedAt: m.revokedAt,
+    revokedBy: m.revokedBy,
   };
   if (view.from === 'me') view.status = guestStatusFrom(m.status) ?? 'sent';
   return view;

@@ -198,6 +198,28 @@ export function sendReaction(token: string, messageId: string, emoji: string): P
 }
 
 /**
+ * Removes one of the customer's messages.
+ *
+ * 'me' hides it from this window only. 'everyone' withdraws it from the
+ * business's inbox as well, and the server refuses that for anything but
+ * the customer's own recent web-chat messages — so the error it returns
+ * is worth showing rather than swallowing.
+ *
+ * POST, not DELETE: the server takes the message id in the body, and a
+ * DELETE with a body is the one request shape proxies still drop.
+ */
+export function deleteGuestMessage(
+  token: string,
+  messageId: string,
+  scope: 'me' | 'everyone',
+): Promise<{ id: string; scope: 'me' | 'everyone' }> {
+  return request(token, '/messages/delete', {
+    method: 'POST',
+    body: JSON.stringify({ messageId, scope }),
+  });
+}
+
+/**
  * Hands the server this browser's Web Push token.
  *
  * Sent on every load once permission has been given, not only the first
