@@ -6,6 +6,7 @@ import { Mic, MicOff, Phone, PhoneOff } from 'lucide-react';
 import {
   GuestLinkInvalidError,
   GuestNetworkError,
+  fetchBusinessAvatarUrl,
   fetchIceServers,
   fetchMessages,
   fetchSession,
@@ -296,6 +297,37 @@ function MessageTicks({ pending, status }: { pending?: boolean; status?: ThreadM
  * reports "scroll up to load that message" about a message that is
  * already on screen.
  */
+/**
+ * Whatever best identifies the business, in whichever circle it is in.
+ *
+ * Three circles show it — the header, the contact card at the top of the
+ * thread, and the call screen — and they had each written their own
+ * `initials || <PersonIcon/>`. One component so a photo reaches all three
+ * at once, and so they can never disagree about what to draw when there
+ * is none.
+ *
+ * The photo fills its container rather than carrying a size of its own:
+ * every one of those circles is a different size, and passing the size in
+ * twice is how one of them ends up wrong.
+ */
+function BusinessFace({
+  photo,
+  initials,
+  iconClass,
+}: {
+  photo: string | null;
+  initials: string;
+  /** The person glyph's size, for the caller that has no initials either. */
+  iconClass: string;
+}) {
+  if (photo) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={photo} alt="" className="h-full w-full object-cover" />;
+  }
+  if (initials) return <>{initials}</>;
+  return <PersonIcon className={iconClass} />;
+}
+
 function rowDomId(messageId: string): string {
   return `wa-msg-${messageId}`;
 }
@@ -607,6 +639,45 @@ export default function GuestChatWindow({ token }: { token: string }) {
    */
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
   const localVideoRef = useRef<HTMLVideoElement | null>(null);
+  /**
+   * The business's photo.
+   *
+   * The window had a name and a coloured circle with a letter in it, so
+   * every business looked the same. On a page whose entire job is
+   * persuading a stranger it is safe to keep talking, a photo is most of
+   * what makes it read as a business rather than a form.
+   *
+   * Keyed on the version from the session, so a photo changed in the
+   * workspace's settings is picked up on the next load and a cached one
+   * is never served under the new address.
+   */
+  const [businessAvatar, setBusinessAvatar] = useState<string | null>(null);
+  const avatarVersion = session?.businessAvatarUpdatedAt ?? null;
+
+  useEffect(() => {
+    // No version means no photo. Not an error, and not worth a request.
+    if (!avatarVersion || demo) return;
+
+    let cancelled = false;
+    let created: string | null = null;
+    void fetchBusinessAvatarUrl(token, avatarVersion).then((url) => {
+      if (!url) return;
+      if (cancelled) {
+        URL.revokeObjectURL(url);
+        return;
+      }
+      created = url;
+      setBusinessAvatar(url);
+    });
+
+    return () => {
+      cancelled = true;
+      // An object URL that is never revoked pins the whole file in memory
+      // for the life of the tab.
+      if (created) URL.revokeObjectURL(created);
+    };
+  }, [token, avatarVersion, demo]);
+
   /** The message a quote just jumped to, marked until the timer clears it. */
   const [jumpedTo, setJumpedTo] = useState<string | null>(null);
   const jumpTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1877,7 +1948,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       <header className="z-20 flex shrink-0 items-center gap-2 bg-[var(--wa-header)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-[var(--wa-header-text)] shadow-[0_1px_2px_rgba(11,20,26,0.08)]">
         <div className="relative shrink-0">
           <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/18 text-[13px] font-semibold text-[var(--wa-accent)]">
-            {initials || <PersonIcon className="h-6 w-6 opacity-70" />}
+            <BusinessFace photo={businessAvatar} initials={initials} iconClass="h-6 w-6 opacity-70" />
           </div>
         </div>
 
@@ -2057,8 +2128,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
             {/* The contact card the messenger shows at the top of a thread
                 with someone not in your address book. */}
             <div className="mx-auto mb-3 w-full max-w-[400px] rounded-xl bg-[var(--wa-card)] px-5 py-4 text-center shadow-[var(--wa-panel-shadow)]">
-              <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center rounded-full bg-[var(--wa-accent)]/18 text-xl font-semibold text-[var(--wa-accent)]">
-                {initials || <PersonIcon className="h-9 w-9 opacity-70" />}
+              <div className="mx-auto mb-2 flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/18 text-xl font-semibold text-[var(--wa-accent)]">
+                <BusinessFace photo={businessAvatar} initials={initials} iconClass="h-9 w-9 opacity-70" />
               </div>
               <p className="flex items-center justify-center gap-1.5 text-[17px] font-medium leading-tight">
                 {title}
@@ -2881,8 +2952,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 />
               </>
             )}
-            <div className="relative flex h-[132px] w-[132px] items-center justify-center rounded-full bg-[var(--wa-accent)]/25 text-4xl font-semibold text-[var(--call-text)]">
-              {initials || <PersonIcon className="h-16 w-16 opacity-70" />}
+            <div className="relative flex h-[132px] w-[132px] items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/25 text-4xl font-semibold text-[var(--call-text)]">
+              <BusinessFace photo={businessAvatar} initials={initials} iconClass="h-16 w-16 opacity-70" />
             </div>
           </div>
 

@@ -198,6 +198,32 @@ export function sendReaction(token: string, messageId: string, emoji: string): P
 }
 
 /**
+ * The business's photo, as an object URL.
+ *
+ * Fetched with the link token like every other guest request — the route
+ * takes no id at all, since the link already says which workspace this
+ * is. Returns null when there is no photo, which is the ordinary case and
+ * not an error: the window draws initials.
+ *
+ * The caller owns the URL and must revoke it, exactly as with message
+ * media.
+ */
+export async function fetchBusinessAvatarUrl(token: string, version: string): Promise<string | null> {
+  try {
+    const res = await fetch(
+      `${apiBaseUrl()}/guest/business-avatar?v=${encodeURIComponent(version)}`,
+      { headers: { Authorization: `Bearer ${token}` } },
+    );
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  } catch {
+    // Offline, or a link that has just been revoked. Initials are a
+    // perfectly good answer to either.
+    return null;
+  }
+}
+
+/**
  * Removes one of the customer's messages.
  *
  * 'me' hides it from this window only. 'everyone' withdraws it from the

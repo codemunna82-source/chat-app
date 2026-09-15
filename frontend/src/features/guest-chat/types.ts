@@ -100,6 +100,15 @@ export interface GuestSession {
   /** The business's WhatsApp number, for the customer to check against the thread the link came from. */
   businessPhone?: string;
   /**
+   * When the business's photo last changed, or absent when it has none.
+   *
+   * A version rather than a URL: the picture is served from a route
+   * behind this window's own link, so nothing here outlives the link.
+   * Its absence is what stops the window asking for a photo that does
+   * not exist.
+   */
+  businessAvatarUpdatedAt?: string | null;
+  /**
    * Whether the customer has blocked this chat.
    *
    * Comes back on every session load, not only from the tap that set it:
