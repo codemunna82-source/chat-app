@@ -15,36 +15,54 @@
 
 /* Default = light (next-themes adds html.dark / html.light) — web-first mesh + glass tokens */
 :root,
+/*
+ * Green, because the product lives inside WhatsApp.
+ *
+ * #25d366 is WhatsApp's own brand green and is already used in the guest
+ * chat window's send button and verified badge — matching it here means a
+ * customer who taps through from WhatsApp does not cross a colour change
+ * on the way. The deeper #128c7e carries the interactive states: the
+ * bright green is too light to sit under white text at the contrast this
+ * needs, so it stays a highlight and the teal does the work.
+ */
 html.light {
-  --background: #eef2ff;
-  --foreground: #161022;
+  --background: #f0f5f2;
+  --foreground: #0b1a14;
   --surface: #ffffff;
-  --surface-hover: #e8ecff;
-  --border: #d4d8ec;
-  --primary: #6366f1;
-  --primary-hover: #818cf8;
-  --muted: #5c5678;
-  --accent: #f472b6;
-  --accent-2: #22d3ee;
-  --mesh-a: color-mix(in srgb, #6366f1 22%, transparent);
-  --mesh-b: color-mix(in srgb, #a855f7 18%, transparent);
-  --mesh-c: color-mix(in srgb, #22d3ee 14%, transparent);
+  --surface-hover: #e4f0e9;
+  --border: #ccdfd5;
+  --primary: #128c7e;
+  --primary-hover: #25d366;
+  --muted: #55705f;
+  --accent: #25d366;
+  --accent-2: #34b7f1;
+  --mesh-a: color-mix(in srgb, #25d366 22%, transparent);
+  --mesh-b: color-mix(in srgb, #128c7e 18%, transparent);
+  --mesh-c: color-mix(in srgb, #34b7f1 12%, transparent);
 }
 
+/*
+ * Dark takes the BRIGHT green as primary and the teal as the hover, the
+ * reverse of light. On a near-black ground #128c7e reads as a muddy
+ * grey-green and fails contrast against the body text; #25d366 is what
+ * stays legible. The pair is swapped rather than re-picked so both themes
+ * keep the same two colours and the brand does not change with the
+ * system setting.
+ */
 html.dark {
-  --background: #0a0910;
-  --foreground: #f1f0ff;
-  --surface: #14121f;
-  --surface-hover: #1e1b2e;
-  --border: #2a2740;
-  --primary: #818cf8;
-  --primary-hover: #a5b4fc;
-  --muted: #9d97b8;
-  --accent: #f472b6;
-  --accent-2: #22d3ee;
-  --mesh-a: color-mix(in srgb, #6366f1 28%, transparent);
-  --mesh-b: color-mix(in srgb, #7c3aed 22%, transparent);
-  --mesh-c: color-mix(in srgb, #0ea5e9 16%, transparent);
+  --background: #0a1410;
+  --foreground: #e9f5ee;
+  --surface: #11201a;
+  --surface-hover: #1a2f26;
+  --border: #244034;
+  --primary: #25d366;
+  --primary-hover: #4ae082;
+  --muted: #8fae9d;
+  --accent: #25d366;
+  --accent-2: #34b7f1;
+  --mesh-a: color-mix(in srgb, #25d366 26%, transparent);
+  --mesh-b: color-mix(in srgb, #128c7e 22%, transparent);
+  --mesh-c: color-mix(in srgb, #0e7490 14%, transparent);
 }
 
 html {
@@ -119,7 +137,9 @@ html.app-shell-lock body {
 .water-page-bg {
   position: relative;
   isolation: isolate;
-  background-image: linear-gradient(165deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, #6366f1) 52%, var(--background) 100%);
+  /* Green, matching the palette above. This was still the old indigo —
+     a page-wide wash tinting every screen a colour the theme had left. */
+  background-image: linear-gradient(165deg, var(--background) 0%, color-mix(in srgb, var(--background) 88%, #25d366) 52%, var(--background) 100%);
 }
 .liquid-mesh-bg::before,
 .water-page-bg::before {
@@ -393,4 +413,358 @@ html.dark .glass-liquid {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: color-mix(in srgb, var(--muted) 50%, transparent);
+}
+
+/* ── Guest chat window (/c/[token]) ──────────────────────────────────────
+ *
+ * A deliberately self-contained palette. The rest of this app is indigo and
+ * glass; the customer-facing window has to feel like the messenger they were
+ * just in, so it opts out of the theme tokens above entirely and defines its
+ * own on `.wa`. Nothing outside that class is affected, and the two palettes
+ * cannot drift into each other.
+ *
+ * Light/dark still follows next-themes' `html.dark`, so a customer whose
+ * phone is in dark mode gets the dark window.
+ */
+.wa {
+  /* The messenger's own stack, not the app's display face. Sora and
+   * Fraunces are branding faces for a marketing surface; a chat window
+   * reads as native only in whatever the device itself uses. The emoji
+   * families sit at the end as fallbacks rather than being forced onto
+   * message text — forcing them means a device without any of them falls
+   * through to generic sans-serif, whose metrics stretch word gaps. */
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "Helvetica Neue", "Noto Sans", Arial, sans-serif, "Apple Color Emoji",
+    "Segoe UI Emoji", "Noto Color Emoji";
+  --wa-header: #f7f5f3;
+  --wa-header-text: #111b21;
+  --wa-header-sub: #667781;
+  --wa-wall: #efe7de;
+  --wa-in: #ffffff;
+  --wa-out: #d9fdd3;
+  --wa-text: #111b21;
+  --wa-meta: #667781;
+  --wa-tick: #8696a0;
+  /* Green rather than WhatsApp's blue, to match this app's own palette.
+     Deeper than the brand #25d366 because the read tick sits on the pale
+     green outgoing bubble, where the brand colour has too little contrast
+     to read as a mark at all. */
+  --wa-tick-read: #0a9d57;
+  --wa-chip: #ffffff;
+  --wa-chip-text: #54656f;
+  --wa-notice: #fff3c5;
+  --wa-notice-text: #5b5442;
+  --wa-composer: #f7f5f3;
+  --wa-input: #ffffff;
+  --wa-icon: #54656f;
+  --wa-accent: #00a884;
+  --wa-card: #ffffff;
+  --wa-card-sub: #667781;
+  --wa-divider: rgba(17, 27, 33, 0.09);
+  --wa-hover: rgba(11, 20, 26, 0.05);
+  --wa-bubble-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.13);
+  --wa-panel-shadow: 0 2px 5px rgba(11, 20, 26, 0.16);
+  /* Text-weight red. The solid #e0483d that fills the submit button is
+   * legible on either ground because it carries white text; the same red
+   * as TEXT is too dark to read on the dark wallpaper, so the two themes
+   * need different values. */
+  --wa-danger: #c53a30;
+}
+
+html.dark .wa {
+  --wa-header: #202c33;
+  --wa-header-text: #e9edef;
+  --wa-header-sub: #8696a0;
+  --wa-wall: #0b141a;
+  --wa-in: #202c33;
+  --wa-out: #005c4b;
+  --wa-text: #e9edef;
+  --wa-meta: rgba(233, 237, 239, 0.6);
+  --wa-tick: #8696a0;
+  /* On the dark outgoing bubble the brand green is the legible one. */
+  --wa-tick-read: #25d366;
+  --wa-chip: #182229;
+  --wa-chip-text: #8696a0;
+  --wa-notice: #182634;
+  --wa-notice-text: #ffd279;
+  --wa-composer: #111b21;
+  --wa-input: #2a3942;
+  --wa-icon: #8696a0;
+  --wa-accent: #00a884;
+  --wa-card: #202c33;
+  --wa-card-sub: #8696a0;
+  --wa-divider: rgba(233, 237, 239, 0.11);
+  --wa-hover: rgba(233, 237, 239, 0.07);
+  --wa-bubble-shadow: 0 1px 0.5px rgba(11, 20, 26, 0.38);
+  --wa-panel-shadow: 0 2px 5px rgba(11, 20, 26, 0.4);
+  --wa-danger: #f26d62;
+}
+
+/* The app sets a display face on headings and the browser gives form
+ * controls a font of their own; both would put a second typeface inside a
+ * window whose whole job is to look like one native surface. */
+.wa h1,
+.wa h2,
+.wa h3,
+.wa h4,
+.wa p,
+.wa span,
+.wa li,
+.wa button,
+.wa textarea,
+.wa input {
+  font-family: inherit;
+}
+
+/* The wallpaper sits on the frame, not on the scroller: in the real app it
+ * stays put while the thread moves over it. Painting it inside the scroll
+ * container would make it slide with the messages and tile to the full
+ * transcript height. */
+.wa-wall {
+  background-color: var(--wa-wall);
+}
+
+.wa-wall::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: url("/wa-pattern.svg");
+  background-repeat: repeat;
+  background-size: 280px 280px;
+  opacity: 0.05;
+  pointer-events: none;
+}
+
+/* The doodles are drawn dark; inverting is how they become the lighter-than-
+ * background marks the dark theme needs, without a second asset to maintain. */
+html.dark .wa-wall::before {
+  filter: invert(1);
+  opacity: 0.05;
+}
+
+/* The little triangle where a bubble meets its side of the screen. Only the
+ * first bubble of a run gets one — a whole group of tails is the giveaway
+ * that a chat UI was rebuilt from a screenshot. */
+.wa-tail-in::before,
+.wa-tail-out::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  width: 0;
+  height: 0;
+  border-style: solid;
+}
+
+.wa-tail-in::before {
+  left: -8px;
+  border-width: 0 8px 10px 0;
+  border-color: transparent var(--wa-in) transparent transparent;
+}
+
+.wa-tail-out::before {
+  right: -8px;
+  border-width: 0 0 10px 8px;
+  border-color: transparent transparent transparent var(--wa-out);
+}
+
+/* Thin, dim, and out of the way — the default desktop scrollbar is far too
+ * loud against a wallpaper. */
+.wa-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(134, 150, 160, 0.45) transparent;
+}
+
+.wa-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.wa-scroll::-webkit-scrollbar-thumb {
+  background-color: rgba(134, 150, 160, 0.45);
+  border-radius: 3px;
+}
+
+.wa-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+
+/* ── Call screen ─────────────────────────────────────────────────────
+ *
+ * Its own dark surface in both themes, like the app it is modelled on: a
+ * call takes over the phone, and a light call screen sliding up over a
+ * light chat reads as a dialog rather than as a call.
+ */
+.wa-call {
+  --call-bg: #0b141a;
+  --call-surface: rgba(255, 255, 255, 0.14);
+  --call-surface-active: #ffffff;
+  --call-text: #e9edef;
+  --call-sub: rgba(233, 237, 239, 0.62);
+  background:
+    radial-gradient(120% 80% at 50% -10%, #16323a 0%, transparent 60%),
+    linear-gradient(180deg, #101d24 0%, var(--call-bg) 55%);
+  color: var(--call-text);
+}
+
+/* Comes up from the bottom edge the way the real one does, rather than
+ * appearing all at once — the movement is what says "this took over". */
+@keyframes wa-call-enter {
+  from {
+    opacity: 0;
+    transform: translateY(14%);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.wa-call-enter {
+  animation: wa-call-enter 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Concentric rings leaving the avatar while the call rings. Two copies at
+ * staggered delays give a continuous pulse without a second element per
+ * beat, and they scale from the centre so the avatar itself stays put. */
+@keyframes wa-call-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2.1);
+    opacity: 0;
+  }
+}
+
+.wa-call-pulse {
+  animation: wa-call-pulse 2200ms cubic-bezier(0.2, 0.5, 0.35, 1) infinite;
+}
+
+/* The accept button lifts, the way a phone nudges you to pick up. */
+@keyframes wa-call-bob {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-7px);
+  }
+}
+
+.wa-call-bob {
+  animation: wa-call-bob 1400ms ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-call-enter,
+  .wa-call-pulse,
+  .wa-call-bob {
+    animation: none;
+  }
+}
+
+/* A placeholder with a highlight travelling across it, rather than a block
+ * that pulses. The sweep reads as loading; a fading rectangle reads as a
+ * rendering bug. */
+.wa-shimmer {
+  position: relative;
+  overflow: hidden;
+  background-color: rgba(11, 20, 26, 0.07);
+}
+
+html.dark .wa-shimmer {
+  background-color: rgba(233, 237, 239, 0.08);
+}
+
+.wa-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  transform: translateX(-100%);
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.45),
+    transparent
+  );
+  animation: wa-shimmer 1400ms ease-in-out infinite;
+}
+
+html.dark .wa-shimmer::after {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.07), transparent);
+}
+
+@keyframes wa-shimmer {
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-shimmer::after {
+    animation: none;
+  }
+}
+
+/* Long threads: the browser skips layout and paint for rows that are not
+ * on screen. contain-intrinsic-size keeps the scrollbar honest by giving
+ * a skipped row a plausible height instead of collapsing it to nothing,
+ * which is what makes the thumb jump while scrolling. */
+.wa-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+
+/* The report sheet rising from the bottom edge, and the tick that lands
+ * once it has been submitted. Both are short: a confirmation that takes
+ * half a second to appear reads as the request still being in flight. */
+.wa-sheet-enter {
+  animation: wa-sheet-enter 190ms cubic-bezier(0.22, 0.75, 0.3, 1);
+}
+
+@keyframes wa-sheet-enter {
+  from {
+    transform: translateY(14%);
+    opacity: 0.4;
+  }
+}
+
+.wa-receipt-pop {
+  animation: wa-receipt-pop 320ms cubic-bezier(0.2, 1.5, 0.4, 1);
+}
+
+@keyframes wa-receipt-pop {
+  from {
+    transform: scale(0.55);
+    opacity: 0;
+  }
+}
+
+/* The reported message, still in the thread behind the sheet. The ring
+ * says which one the form is talking about without moving it or hiding
+ * everything else, so the surrounding conversation stays readable — which
+ * is most of what makes a report checkable. */
+.wa-highlighted {
+  animation: wa-highlight-in 240ms ease-out;
+  border-radius: 10px;
+  box-shadow:
+    0 0 0 2px var(--wa-accent),
+    0 0 0 7px color-mix(in srgb, var(--wa-accent) 22%, transparent);
+}
+
+@keyframes wa-highlight-in {
+  from {
+    box-shadow:
+      0 0 0 2px color-mix(in srgb, var(--wa-accent) 0%, transparent),
+      0 0 0 14px color-mix(in srgb, var(--wa-accent) 0%, transparent);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-sheet-enter,
+  .wa-receipt-pop,
+  .wa-highlighted {
+    animation: none;
+  }
 }
