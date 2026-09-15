@@ -4,12 +4,19 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { Socket } from 'socket.io-client';
 
 /**
- * One audio call between this window and the agent's app.
+ * One call between this window and the agent's app, with or without video.
  *
- * Audio only, deliberately: it is what the product needs, and it keeps the
- * media to a single track that a phone on mobile data can actually carry.
+ * Whoever PLACES the call decides which, and the other side follows —
+ * see the server's CallLog.media. A side that answered a video call
+ * audio-only would leave the caller looking at a black rectangle with no
+ * way to tell whether it is broken or deliberate.
  *
- * The server only relays SDP and ICE — the audio goes straight between
+ * The kind is fixed for the life of the call. Turning a camera off
+ * mid-call disables the track and leaves the negotiated media alone; an
+ * audio call cannot grow a camera without being placed again, which is
+ * why no button offers to.
+ *
+ * The server only relays SDP and ICE — the media goes straight between
  * this browser and the phone, which is why the ICE configuration is
  * fetched from the server rather than hardcoded: both ends have to be
  * given the same relay or their candidates never pair up.
@@ -49,12 +56,25 @@ export class MicrophoneUnavailableError extends Error {
   }
 }
 
-async function openMicrophone(): Promise<MediaStream> {
+/**
+ * Opens the microphone, and the camera when the call has one.
+ *
+ * The camera constraints are preferences rather than requirements:
+ * `facingMode` as a plain string is a hint a laptop with one webcam can
+ * ignore, where `exact` would make getUserMedia throw and fail the whole
+ * call over the choice of lens.
+ */
+async function openMedia(video: boolean): Promise<MediaStream> {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     throw new MicrophoneUnavailableError(new Error('getUserMedia is unavailable in this browser'));
   }
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    return await navigator.mediaDevices.getUserMedia({
+      audio: true,
+      video: video
+        ? { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } }
+        : false,
+    });
   } catch (err) {
     throw new MicrophoneUnavailableError(err);
   }
@@ -75,6 +95,23 @@ export function useGuestCall(
   const [message, setMessage] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [connectedAt, setConnectedAt] = useState<number | null>(null);
+  /**
+   * Whether this call has a camera in it at all — fixed once it starts.
+   * Set from the caller's choice when placing, and from the ring when
+   * receiving.
+   */
+  const [media, setMedia] = useState<'audio' | 'video'>('audio');
+  /** This side's camera, off and on again without renegotiating. */
+  const [cameraOn, setCameraOn] = useState(true);
+  /**
+   * The two pictures, as state rather than refs.
+   *
+   * The call screen has to RE-RENDER when the far end's stream arrives —
+   * a stream attached to a ref would leave the video element black until
+   * something else happened to repaint.
+   */
+  const [localStream, setLocalStream] = useState<MediaStream | null>(null);
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null);
 
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
@@ -141,6 +178,8 @@ export function useGuestCall(
     if (ringTimerRef.current) clearTimeout(ringTimerRef.current);
     ringTimerRef.current = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
+    setLocalStream(null);
+    setRemoteStream(null);
   }, []);
 
   const createPeer = useCallback(
@@ -165,7 +204,22 @@ export function useGuestCall(
 
       pc.ontrack = (event) => {
         const [remote] = event.streams;
-        if (remoteAudioRef.current && remote) {
+        if (!remote) return;
+        // Held for the <video> element to render. Fires once per track —
+        // audio and then video on a video call — with the same stream
+        // object both times, so this is written to be idempotent.
+        setRemoteStream(remote);
+        if (remoteAudioRef.current) {
+          /**
+           * The audio element stays, even on a video call.
+           *
+           * The <video> element could carry both, but only while it is
+           * mounted: the call screen swaps between layouts, and a remount
+           * would silence a live call for as long as it took to repaint.
+           * The audio element is mounted for the whole call and never
+           * moves, so the sound never stops. The video element is muted
+           * to keep the same audio from playing twice.
+           */
           remoteAudioRef.current.srcObject = remote;
           // The play() promise rejects when autoplay is blocked. Both call
           // paths begin with a tap (Call, or Accept), so the gesture that
@@ -217,9 +271,11 @@ export function useGuestCall(
     }
   }, []);
 
-  /** The customer pressing Call. */
-  const startCall = useCallback(async () => {
+  /** The customer pressing Call, or Video call. */
+  const startCall = useCallback(async (kind: 'audio' | 'video' = 'audio') => {
     if (phase !== 'idle') return;
+    setMedia(kind);
+    setCameraOn(true);
 
     if (demo) {
       setMessage(null);
@@ -253,8 +309,9 @@ export function useGuestCall(
     setPhase('calling');
 
     try {
-      const stream = await openMicrophone();
+      const stream = await openMedia(kind === 'video');
       localStreamRef.current = stream;
+      setLocalStream(stream);
       const pc = await createPeer(stream);
 
       const offer = await pc.createOffer();
@@ -262,7 +319,10 @@ export function useGuestCall(
 
       socket.emit(
         'web:call:start',
-        { sdp: pc.localDescription?.sdp },
+        // The kind travels with the offer: the server stores it on the
+        // call and every path that rings the agent — socket and push
+        // alike — reads it back from there.
+        { sdp: pc.localDescription?.sdp, media: kind },
         (res: { success: boolean; callId?: string; error?: string }) => {
           if (!res?.success || !res.callId) {
             setPhase('failed');
@@ -289,7 +349,9 @@ export function useGuestCall(
       setPhase('failed');
       setMessage(
         err instanceof MicrophoneUnavailableError
-          ? 'This browser will not give the page microphone access. Open this link in Chrome and try again.'
+          ? kind === 'video'
+            ? 'This browser will not give the page camera and microphone access. Open this link in Chrome and try again.'
+            : 'This browser will not give the page microphone access. Open this link in Chrome and try again.'
           : 'Could not start the call.',
       );
     }
@@ -313,8 +375,11 @@ export function useGuestCall(
     setPhase('connecting');
 
     try {
-      const stream = await openMicrophone();
+      // The CALLER decided this; this side follows it. Answering audio-only
+      // would leave them looking at a black rectangle.
+      const stream = await openMedia(media === 'video');
       localStreamRef.current = stream;
+      setLocalStream(stream);
       const pc = await createPeer(stream);
 
       await pc.setRemoteDescription(new RTCSessionDescription({ type: 'offer', sdp: offer }));
@@ -332,12 +397,14 @@ export function useGuestCall(
       setPhase('failed');
       setMessage(
         err instanceof MicrophoneUnavailableError
-          ? 'This browser will not give the page microphone access. Open this link in Chrome and try again.'
+          ? media === 'video'
+            ? 'This browser will not give the page camera and microphone access. Open this link in Chrome and try again.'
+            : 'This browser will not give the page microphone access. Open this link in Chrome and try again.'
           : 'Could not connect the call.',
       );
       if (callId) socket.emit('web:call:end', { callId });
     }
-  }, [socket, phase, createPeer, drainPendingIce, teardown, flushLocalIce, demo]);
+  }, [socket, phase, createPeer, drainPendingIce, teardown, flushLocalIce, demo, media]);
 
   const endCall = useCallback(() => {
     if (demo) {
@@ -367,11 +434,31 @@ export function useGuestCall(
     });
   }, []);
 
+  /**
+   * The camera off without leaving the call.
+   *
+   * Disables the track rather than stopping it: a stopped track has to be
+   * replaced and renegotiated to come back, where a disabled one simply
+   * freezes the last frame at the far end. Turning a camera off and on
+   * again must not renegotiate a live call.
+   */
+  const toggleCamera = useCallback(() => {
+    setCameraOn((prev) => {
+      const next = !prev;
+      localStreamRef.current?.getVideoTracks().forEach((t) => {
+        t.enabled = next;
+      });
+      return next;
+    });
+  }, []);
+
   const dismiss = useCallback(() => {
     clearDemoTimers();
     setPhase('idle');
     setMessage(null);
     setConnectedAt(null);
+    setMedia('audio');
+    setCameraOn(true);
   }, [clearDemoTimers]);
 
   useEffect(() => clearDemoTimers, [clearDemoTimers]);
@@ -380,13 +467,18 @@ export function useGuestCall(
   useEffect(() => {
     if (!socket) return;
 
-    const onIncoming = (payload: { callId: string; sdp?: string }) => {
+    const onIncoming = (payload: { callId: string; sdp?: string; media?: 'audio' | 'video' }) => {
       // One call at a time: a second ring while one is live is far more
       // likely to be a reconnect replaying than a real second caller, and
       // replacing the live call would drop a conversation in progress.
       if (phase !== 'idle') return;
       callIdRef.current = payload.callId;
       pendingOfferRef.current = payload.sdp ?? null;
+      // Read before Accept is pressed, so the screen can say which kind
+      // of call is ringing — "Incoming video call" is the difference
+      // between answering and not, for someone who is not presentable.
+      setMedia(payload.media === 'video' ? 'video' : 'audio');
+      setCameraOn(true);
       setPhase('incoming');
     };
 
@@ -448,10 +540,15 @@ export function useGuestCall(
     muted,
     connectedAt,
     remoteAudioRef,
+    media,
+    cameraOn,
+    localStream,
+    remoteStream,
     startCall,
     acceptCall,
     endCall,
     toggleMute,
+    toggleCamera,
     dismiss,
   };
 }

@@ -287,3 +287,23 @@ export function ReplyIcon({ className }: IconProps) {
     </svg>
   );
 }
+
+export function VideoIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <rect x="2.5" y="6" width="13" height="12" rx="2.5" />
+      <path d="M15.5 10.5 21.5 7.2v9.6l-6-3.3z" />
+    </svg>
+  );
+}
+
+export function VideoOffIcon({ className }: IconProps) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <path d="M15.5 12.8V16a2.5 2.5 0 0 1-2.5 2.5H5A2.5 2.5 0 0 1 2.5 16V8a2.5 2.5 0 0 1 2.5-2.5h1.2" />
+      <path d="M10.5 5.5H13A2.5 2.5 0 0 1 15.5 8v1.2" />
+      <path d="M15.5 10.5 21.5 7.2v9.6l-3.4-1.9" />
+      <path d="M3 3l18 18" />
+    </svg>
+  );
+}

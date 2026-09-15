@@ -41,6 +41,8 @@ import {
   PlayIcon,
   PlusIcon,
   ReplyIcon,
+  VideoIcon,
+  VideoOffIcon,
   SendIcon,
   SmileyIcon,
   TickIcon,
@@ -561,6 +563,56 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
   const call = useGuestCall(socket, loadIce, { demo });
+  /**
+   * The two <video> elements.
+   *
+   * A MediaStream cannot be handed to React as a prop — `srcObject` is a
+   * DOM property with no HTML attribute behind it, so it has to be
+   * assigned to the element itself. Assigned in an effect keyed on the
+   * stream, which is also what reattaches it if the element remounts.
+   */
+  const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const localVideoRef = useRef<HTMLVideoElement | null>(null);
+
+  const onCall = call.phase === 'connecting' || call.phase === 'active';
+  /**
+   * The far end's picture, once it exists — not simply "is this a video
+   * call". The stream arrives when WebRTC negotiates it, which is after
+   * the answer, so between accepting and the first frame there is a
+   * moment with nothing to show. The avatar covers it.
+   */
+  const showRemoteVideo = call.media === 'video' && onCall && Boolean(call.remoteStream);
+  /** This side's own camera, from the moment it opens — including while
+   *  an outgoing call is still ringing, which is when people check what
+   *  they look like. */
+  const showSelfView = call.media === 'video' && onCall && call.cameraOn && Boolean(call.localStream);
+
+  /**
+   * A MediaStream reaches a <video> through `srcObject`, a DOM property
+   * with no HTML attribute behind it — React cannot set it as a prop.
+   *
+   * Declared here rather than beside the call screen it belongs to,
+   * because there is an early return between the two and a hook may not
+   * sit after one. Keyed on the visibility flag as well as the stream,
+   * since the flag is what mounts the element: an effect on the stream
+   * alone would run in the render before the element existed.
+   */
+  useEffect(() => {
+    const el = remoteVideoRef.current;
+    if (!el) return;
+    el.srcObject = call.remoteStream;
+    // Autoplay is permitted here — both call paths begin with a tap — and
+    // the element is muted anyway, which browsers allow to play
+    // regardless. The catch is for the odd case neither holds.
+    void el.play().catch(() => {});
+  }, [call.remoteStream, showRemoteVideo]);
+
+  useEffect(() => {
+    const el = localVideoRef.current;
+    if (!el) return;
+    el.srcObject = call.localStream;
+    void el.play().catch(() => {});
+  }, [call.localStream, showSelfView]);
   const recorder = useVoiceRecorder();
   /**
    * Whether the microphone button is worth showing at all.
@@ -1727,6 +1779,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
   const callActive = call.phase !== 'idle';
   const ringing = call.phase === 'calling' || call.phase === 'incoming';
+
   const hasDraft = draft.trim().length > 0;
 
   return (
@@ -1768,11 +1821,19 @@ export default function GuestChatWindow({ token }: { token: string }) {
           </p>
         </div>
 
-        {/* No video-call button: this window carries audio only, and an
-            icon that opens nothing is worse than an icon that is absent. */}
         <button
           type="button"
-          onClick={() => void call.startCall()}
+          onClick={() => void call.startCall('video')}
+          disabled={callActive || !connected || blocked}
+          aria-label="Video call"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition active:scale-90 disabled:opacity-35"
+        >
+          <VideoIcon className="h-[22px] w-[22px]" />
+        </button>
+
+        <button
+          type="button"
+          onClick={() => void call.startCall('audio')}
           disabled={callActive || !connected || blocked}
           aria-label="Voice call"
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition active:scale-90 disabled:opacity-35"
@@ -2633,11 +2694,50 @@ export default function GuestChatWindow({ token }: { token: string }) {
           box, which is what a centred stack of everything reads as. */}
       {callActive && (
         <div className="wa-call wa-call-enter fixed inset-0 z-50 flex flex-col items-center justify-between px-8 pb-[calc(3rem+env(safe-area-inset-bottom,0px))] pt-[calc(4rem+env(safe-area-inset-top,0px))] text-center">
-          <div className="flex flex-col items-center gap-1.5">
+          {/* Behind everything, not beside it: the other side's picture
+              IS the screen on a video call, and the name, status and
+              controls sit on top of it. Only once a stream has actually
+              arrived — between accepting and the first frame there is a
+              moment with nothing to show, and the avatar covers it
+              rather than the screen going black.
+
+              Muted on purpose: the sound comes from the <audio> element
+              that is mounted for the whole call and never moves, so it
+              cannot be interrupted by this element remounting. */}
+          {showRemoteVideo && (
+            <video
+              ref={remoteVideoRef}
+              autoPlay
+              playsInline
+              muted
+              className="absolute inset-0 h-full w-full object-cover"
+            />
+          )}
+
+          {showSelfView && (
+            <video
+              ref={localVideoRef}
+              autoPlay
+              playsInline
+              muted
+              /* Mirrored, because a self-view that is not is the one thing
+                 everybody notices at once — it is a mirror, not a
+                 photograph. Fixed top-right rather than draggable: one
+                 more thing to get wrong mid-call, and every phone puts it
+                 there anyway. */
+              className="absolute right-4 top-[calc(1rem+env(safe-area-inset-top,0px))] z-10 h-[150px] w-[104px] scale-x-[-1] rounded-[14px] border border-white/20 bg-black object-cover shadow-lg"
+            />
+          )}
+
+          <div className={`relative z-10 flex flex-col items-center gap-1.5 ${showRemoteVideo ? 'rounded-[18px] bg-black/45 px-5 py-3.5' : ''}`}>
             <h2 className="text-[24px] font-normal leading-tight">{title}</h2>
             <p className="text-[14.5px] text-[var(--call-sub)]" aria-live="polite">
               {call.phase === 'calling' && 'Ringing…'}
-              {call.phase === 'incoming' && 'Incoming voice call'}
+              {/* Which kind, before Accept is pressed. For someone who is
+                  not presentable that is the difference between answering
+                  and not. */}
+              {call.phase === 'incoming' &&
+                (call.media === 'video' ? 'Incoming video call' : 'Incoming voice call')}
               {call.phase === 'connecting' && 'Connecting…'}
               {call.phase === 'active' &&
                 (call.connectedAt ? <CallDuration since={call.connectedAt} /> : 'Connected')}
@@ -2652,7 +2752,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
             </p>
           </div>
 
-          <div className="relative flex items-center justify-center">
+          <div className={`relative z-10 flex items-center justify-center ${showRemoteVideo ? 'hidden' : ''}`}>
             {ringing && (
               <>
                 <span className="wa-call-pulse absolute h-[132px] w-[132px] rounded-full bg-white/16" aria-hidden />
@@ -2669,7 +2769,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
           </div>
 
           {call.phase === 'incoming' ? (
-            <div className="flex w-full max-w-[280px] items-start justify-between">
+            <div className="relative z-10 flex w-full max-w-[280px] items-start justify-between">
               <CallAction label="Decline" onClick={call.endCall} tone="decline">
                 <PhoneOff className="h-7 w-7" />
               </CallAction>
@@ -2686,7 +2786,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
               Close
             </button>
           ) : (
-            <div className="flex w-full max-w-[280px] items-start justify-center gap-12">
+            <div className="relative z-10 flex w-full max-w-[320px] items-start justify-center gap-10">
               <CallAction
                 label={call.muted ? 'Unmute' : 'Mute'}
                 onClick={call.toggleMute}
@@ -2695,6 +2795,20 @@ export default function GuestChatWindow({ token }: { token: string }) {
               >
                 {call.muted ? <MicOff className="h-6 w-6" /> : <Mic className="h-6 w-6" />}
               </CallAction>
+              {/* Only on a call that has a camera in it. An audio call
+                  cannot grow one without being placed again — the media
+                  is negotiated once — so a button offering it would be a
+                  promise this does not keep. */}
+              {call.media === 'video' && (
+                <CallAction
+                  label={call.cameraOn ? 'Turn camera off' : 'Turn camera on'}
+                  onClick={call.toggleCamera}
+                  tone={call.cameraOn ? 'plain' : 'on'}
+                  caption={call.cameraOn ? 'Camera' : 'Camera off'}
+                >
+                  {call.cameraOn ? <VideoIcon className="h-6 w-6" /> : <VideoOffIcon className="h-6 w-6" />}
+                </CallAction>
+              )}
               <CallAction label="End call" onClick={call.endCall} tone="decline" caption="End">
                 <PhoneOff className="h-7 w-7" />
               </CallAction>
