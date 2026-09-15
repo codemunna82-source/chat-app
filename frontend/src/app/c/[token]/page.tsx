@@ -11,6 +11,20 @@ import { ServiceWorker } from '@/features/guest-chat/ServiceWorker';
 const metadata: Metadata = {
   title: 'Chat',
   robots: { index: false, follow: false },
+  /**
+   * No social card, deliberately — and null rather than simply omitted,
+   * because Next MERGES metadata down the route tree and an omission
+   * would inherit the root layout's.
+   *
+   * Two reasons. This page is private: a card is something built to be
+   * previewed when a link is shared, and this link gets shared by being
+   * forwarded in WhatsApp to people it was never meant for. And a
+   * workspace on its own chat domain would otherwise have its customers'
+   * pages advertising the shared platform's name, which is the thing that
+   * domain exists to avoid.
+   */
+  openGraph: null,
+  twitter: null,
   // Added to the home screen, this opens chrome-less — the browser bar is
   // the last thing between this and feeling like the messenger the
   // customer was just in.

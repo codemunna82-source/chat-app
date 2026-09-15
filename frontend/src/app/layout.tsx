@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
+import { requestOrigin } from "@/lib/requestOrigin";
 
 const apiHost = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:5000/api').replace(/\/api$/, '');
 const socketHost = process.env.NEXT_PUBLIC_SOCKET_URL || 'http://localhost:5000';
@@ -20,40 +21,50 @@ const voxoHost = (process.env.NEXT_PUBLIC_VOXO_API_URL || '').replace(/\/api\/?$
  *
  * Next needs an absolute base to resolve the relative URLs in metadata —
  * without one it warns at build time and emits social-card URLs relative
- * to localhost. Read from the environment rather than written in, because
- * the same source is deployed to a preview URL and a custom domain and
- * neither should be hardcoded here.
+ * to localhost.
+ *
+ * Read from the REQUEST rather than from the environment, because one
+ * deployment now answers on several domains: the shared one, a pool of
+ * spare ones, and any domain a workspace has pointed at us. A build-time
+ * value can only name one of them, so every other domain was serving
+ * pages whose canonical URL and social card pointed somewhere else — which
+ * is exactly what giving a workspace its own domain is meant to avoid.
+ *
+ * This makes the layout dynamic, which costs nothing here: every page
+ * under it is either a login wall or a token-driven chat window, and none
+ * of them was ever statically rendered.
  */
-const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000').replace(/\/+$/, '');
-
-export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
-  title: "waprivate — secure business chat",
-  description:
-    "The private chat window businesses use to continue WhatsApp conversations securely.",
-  icons: {
-    icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
-    shortcut: "/favicon.svg",
-    apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
-  },
-  keywords: ["whatsapp", "business chat", "secure messaging", "customer support"],
-  authors: [{ name: "waprivate" }],
-  openGraph: {
+export async function generateMetadata(): Promise<Metadata> {
+  const siteUrl = await requestOrigin();
+  return {
+    metadataBase: new URL(siteUrl),
     title: "waprivate — secure business chat",
     description:
       "The private chat window businesses use to continue WhatsApp conversations securely.",
-    type: "website",
-    // Was a hardcoded domain this app has never been served from, so every
-    // shared link advertised a site that does not exist.
-    url: siteUrl,
-    siteName: "waprivate",
-  },
-  twitter: {
-    card: "summary_large_image",
-    title: "waprivate — secure business chat",
-    description: "The private chat window behind a WhatsApp message.",
-  },
-};
+    icons: {
+      icon: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+      shortcut: "/favicon.svg",
+      apple: [{ url: "/favicon.svg", type: "image/svg+xml" }],
+    },
+    keywords: ["whatsapp", "business chat", "secure messaging", "customer support"],
+    authors: [{ name: "waprivate" }],
+    openGraph: {
+      title: "waprivate — secure business chat",
+      description:
+        "The private chat window businesses use to continue WhatsApp conversations securely.",
+      type: "website",
+      // Was a hardcoded domain this app has never been served from, so every
+      // shared link advertised a site that does not exist.
+      url: siteUrl,
+      siteName: "waprivate",
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: "waprivate — secure business chat",
+      description: "The private chat window behind a WhatsApp message.",
+    },
+  };
+}
 
 export const viewport: Viewport = {
   width: "device-width",
