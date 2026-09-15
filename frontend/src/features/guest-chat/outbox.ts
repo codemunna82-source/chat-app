@@ -1,6 +1,6 @@
 'use client';
 
-import type { ThreadMessage } from './types';
+import type { QuotedMessage, ThreadMessage } from './types';
 
 /**
  * Messages typed while there was no way to send them.
@@ -22,7 +22,9 @@ export interface OutboxItem {
   /** The message being answered, so a reply queued offline keeps its quote. */
   replyToMessageId?: string;
   /** The quote as it should render while queued — the server sends its own once accepted. */
-  replyPreview?: { id: string; from: 'me' | 'business'; preview: string };
+  /** The whole quote, so a queued reply keeps its thumbnail — see
+   *  QuotedMessage. */
+  replyPreview?: QuotedMessage;
 }
 
 const KEY_PREFIX = 'wa-outbox:';

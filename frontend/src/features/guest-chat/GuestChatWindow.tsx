@@ -62,11 +62,13 @@ import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
 import { DeleteSheet } from './DeleteSheet';
 import { uploadVoiceNote } from './guestApi';
 import {
+  quoteOf,
   realtimeToGuestMessage,
   guestStatusFrom,
   rankStatus,
   type GuestSession,
   type RealtimeMessage,
+  type QuotedMessage,
   type ThreadMessage,
 } from './types';
 
@@ -228,13 +230,6 @@ function groupThread(messages: ThreadMessage[]): ThreadItem[] {
 }
 
 /** One line standing in for a message inside a quote — mirrors the server's own rule. */
-function previewOfMessage(m: ThreadMessage): string {
-  if (m.text) return m.text;
-  if (m.type === 'image') return '[photo]';
-  if (m.type === 'audio') return '[voice message]';
-  return `[${m.type}]`;
-}
-
 /** The three-dot bubble, using staggered bounces rather than a keyframe of its own. */
 function TypingBubble() {
   return (
@@ -310,6 +305,42 @@ function MessageTicks({ pending, status }: { pending?: boolean; status?: ThreadM
  * every one of those circles is a different size, and passing the size in
  * twice is how one of them ends up wrong.
  */
+/**
+ * The quoted message, wherever a quote appears.
+ *
+ * Two places show one: above the composer while a reply is being written,
+ * and inside the bubble once it is sent. They are the same thing seen
+ * twice, they had each written their own "[photo]" fallback, and the
+ * composer's never grew a thumbnail when the bubble's did — so a reply to
+ * a picture showed the picture only AFTER sending, which is the one
+ * moment it is least needed.
+ */
+function ReplyQuote({
+  token,
+  quote,
+  /** Whose message it was, for the name on the first line. */
+  businessName,
+}: {
+  token: string;
+  quote: QuotedMessage;
+  businessName: string;
+}) {
+  return (
+    <>
+      <span className="min-w-0 flex-1 self-center">
+        <span className="block truncate font-medium text-[12px] text-[var(--wa-accent)]">
+          {quote.from === 'me' ? 'You' : businessName}
+        </span>
+        <span className="line-clamp-2 block text-[var(--wa-meta)]">{quote.preview}</span>
+      </span>
+      {/* The quoted photo itself. Without it a reply to a picture said
+          only "Photo", which in a thread of nine of them answers
+          nothing. */}
+      {quote.mediaId && <QuotedPhoto key={quote.mediaId} token={token} mediaId={quote.mediaId} />}
+    </>
+  );
+}
+
 function BusinessFace({
   photo,
   initials,
@@ -1372,9 +1403,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
       hasMedia: false,
       createdAt: new Date().toISOString(),
       pending: true,
-      replyTo: replyTo
-        ? { id: replyTo.id, from: replyTo.from, preview: previewOfMessage(replyTo) }
-        : undefined,
+      // The whole quote, thumbnail included: an optimistic bubble that
+      // showed only the word and grew a picture when the send came back
+      // is a flicker at exactly the wrong moment.
+      replyTo: replyTo ? quoteOf(replyTo) : undefined,
     };
 
     setReplyTo(null);
@@ -1428,9 +1460,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
         // media path has always guarded this; the viewer's Reply button
         // is what made a still-uploading photo easy to aim at.
         replyToMessageId: replyTo && !replyTo.pending ? replyTo.id : undefined,
-        replyPreview: replyTo
-          ? { id: replyTo.id, from: replyTo.from, preview: previewOfMessage(replyTo) }
-          : undefined,
+        // The whole quote, not just its one line: an optimistic bubble
+        // that dropped the thumbnail and grew one when the send came back
+        // is a flicker at exactly the wrong moment.
+        replyPreview: replyTo ? quoteOf(replyTo) : undefined,
       },
     ];
     writeOutbox(token, outboxRef.current);
@@ -2319,24 +2352,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
                                 : 'border-[#53bdeb] bg-black/[0.05]'
                             }`}
                           >
-                            <span className="min-w-0 flex-1 self-center">
-                              <span className="block truncate font-medium text-[12px] text-[var(--wa-accent)]">
-                                {m.replyTo.from === 'me' ? 'You' : title}
-                              </span>
-                              <span className="line-clamp-2 block text-[var(--wa-meta)]">
-                                {m.replyTo.preview}
-                              </span>
-                            </span>
-                            {/* The quoted photo itself. Without it a reply
-                                to a picture said only "[photo]", which in
-                                a thread of nine of them answers nothing. */}
-                            {m.replyTo.mediaId && (
-                              <QuotedPhoto
-                                key={m.replyTo.mediaId}
-                                token={token}
-                                mediaId={m.replyTo.mediaId}
-                              />
-                            )}
+                            <ReplyQuote token={token} quote={m.replyTo} businessName={title} />
                           </button>
                         )}
 
@@ -2620,13 +2636,8 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
       {replyTo && !recorder.recording && (
         <div className="z-20 flex shrink-0 items-center gap-2 bg-[var(--wa-composer)] px-3 pt-2">
-          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[6px] border-l-[3px] border-[var(--wa-accent)] bg-[var(--wa-input)] px-2.5 py-1.5">
-            <div className="min-w-0 flex-1">
-              <p className="text-[12.5px] font-medium text-[var(--wa-accent)]">
-                {replyTo.from === 'me' ? 'You' : title}
-              </p>
-              <p className="truncate text-[13px] text-[var(--wa-meta)]">{previewOfMessage(replyTo)}</p>
-            </div>
+          <div className="flex min-w-0 flex-1 items-stretch gap-2 rounded-[6px] border-l-[3px] border-[var(--wa-accent)] bg-[var(--wa-input)] px-2.5 py-1.5 text-[13px] leading-[17px]">
+            <ReplyQuote token={token} quote={quoteOf(replyTo)} businessName={title} />
           </div>
           <button
             type="button"

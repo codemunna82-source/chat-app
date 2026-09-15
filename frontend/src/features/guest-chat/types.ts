@@ -1,3 +1,80 @@
+/**
+ * The message a reply is answering, as both clients draw it.
+ *
+ * `type` and `mediaId` are what let a reply to a picture SHOW the picture
+ * instead of the word "[photo]" — which, in a thread where the business
+ * has just sent nine of them, answers nothing. Both are absent from an
+ * older server, and from a quote built optimistically before the send has
+ * come back; the renderer treats absence as "no icon, no thumbnail".
+ */
+export interface QuotedMessage {
+  id: string;
+  from: 'me' | 'business';
+  /** One line: the caption, or a word for a photo or a recording. */
+  preview: string;
+  type?: string;
+  /** The quoted PHOTO. Present only for an image that still exists. */
+  mediaId?: string;
+}
+
+/**
+ * One line standing in for a quoted message.
+ *
+ * "Photo" rather than "[photo]": a bracketed type name is a placeholder
+ * that leaked into the product. A caption wins over it outright — someone
+ * who wrote "the blue one" on a picture has already said what it is
+ * better than any word this could choose.
+ *
+ * Kept identical to the server's previewOf (backend guest.service.ts),
+ * because both write the same field: the server when the message comes
+ * back, this when a reply is drawn optimistically before it has.
+ */
+export function previewOfQuoted(m: {
+  text?: string;
+  type: string;
+  revokedAt?: string;
+}): string {
+  if (m.revokedAt) return 'This message was deleted';
+  if (m.text) return m.text;
+  switch (m.type) {
+    case 'image':
+      return 'Photo';
+    case 'video':
+      return 'Video';
+    case 'audio':
+      return 'Voice message';
+    case 'document':
+      return 'Document';
+    case 'location':
+      return 'Location';
+    case 'sticker':
+      return 'Sticker';
+    default:
+      return `[${m.type}]`;
+  }
+}
+
+/**
+ * A quote built from a message this window already holds.
+ *
+ * Used for the composer's preview and for the optimistic copy attached to
+ * a reply before the server answers, so what is being answered looks the
+ * same before and after Send — which is also the moment the thumbnail
+ * used to disappear and come back.
+ */
+export function quoteOf(m: GuestMessage): QuotedMessage {
+  const quote: QuotedMessage = {
+    id: m.id,
+    from: m.from,
+    preview: previewOfQuoted(m),
+    type: m.type,
+  };
+  // Only a picture that still exists. A withdrawn one has no bytes left
+  // to fetch, and a document or voice note has no frame to show.
+  if (m.type === 'image' && m.mediaId && !m.revokedAt) quote.mediaId = m.mediaId;
+  return quote;
+}
+
 /** What the customer sees. Mirrors the backend's GuestMessageView exactly. */
 export interface GuestMessage {
   id: string;
@@ -10,17 +87,7 @@ export interface GuestMessage {
   mediaId?: string;
   createdAt: string;
   /** The message this one answers, already flattened to one line by the server. */
-  replyTo?: {
-    id: string;
-    from: 'me' | 'business';
-    preview: string;
-    /** What kind of message it was, for the icon beside the line. Absent
-     *  from an older server, which simply means no icon. */
-    type?: string;
-    /** The quoted PHOTO. Present only for an image that still exists, so
-     *  a reply to a picture shows the picture rather than the word. */
-    mediaId?: string;
-  };
+  replyTo?: QuotedMessage;
   /** Emoji reactions on this message. */
   reactions?: { emoji: string; mine: boolean }[];
   /** Present on `type: 'location'` — where to draw the pin. */
@@ -145,17 +212,7 @@ export interface RealtimeMessage {
   /** On a reaction row, the message it is attached to. */
   replyToMessageId?: string;
   /** Present when the server's realtime payload carries them; older builds send neither. */
-  replyTo?: {
-    id: string;
-    from: 'me' | 'business';
-    preview: string;
-    /** What kind of message it was, for the icon beside the line. Absent
-     *  from an older server, which simply means no icon. */
-    type?: string;
-    /** The quoted PHOTO. Present only for an image that still exists, so
-     *  a reply to a picture shows the picture rather than the word. */
-    mediaId?: string;
-  };
+  replyTo?: QuotedMessage;
   reactions?: { emoji: string; mine: boolean }[];
   location?: GuestLocation;
   /** The workspace's own status enum — QUEUED | SENT | DELIVERED | READ | FAILED. */
