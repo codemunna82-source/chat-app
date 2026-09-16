@@ -440,7 +440,7 @@ export function NumberSetup({
 
         <label className="flex flex-col gap-1.5">
           <span className="text-xs font-semibold uppercase tracking-wide text-muted">
-            WhatsApp Business Account ID <span className="font-normal normal-case">(optional)</span>
+            WhatsApp Business Account ID
           </span>
           <Input
             id="wa-waba-id"
@@ -451,7 +451,10 @@ export function NumberSetup({
             autoComplete="off"
           />
           <span className="text-[12px] leading-snug text-muted">
-            Only needed if this workspace has more than one WABA
+            WhatsApp Manager &rarr; Account tools &rarr; the ID under your business account. Labelled optional
+            and effectively required: without it this number is never subscribed to your Meta app, and{' '}
+            <span className="text-foreground">inbound messages never arrive</span> — it will send perfectly
+            and receive nothing.
           </span>
         </label>
 
