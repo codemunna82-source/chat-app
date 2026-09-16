@@ -476,14 +476,14 @@ export interface WhatsAppNudgePolicy {
 }
 
 export function getWhatsAppNudges(): Promise<WhatsAppNudgePolicy> {
-  return request<WhatsAppNudgePolicy>('/tenants/settings/whatsapp-nudges');
+  return request<WhatsAppNudgePolicy>('/tenant/settings/whatsapp-nudges');
 }
 
 export function updateWhatsAppNudges(patch: {
   enforced?: boolean;
   messages?: string[];
 }): Promise<WhatsAppNudgePolicy> {
-  return request<WhatsAppNudgePolicy>('/tenants/settings/whatsapp-nudges', {
+  return request<WhatsAppNudgePolicy>('/tenant/settings/whatsapp-nudges', {
     method: 'PATCH',
     body: JSON.stringify(patch),
   });
