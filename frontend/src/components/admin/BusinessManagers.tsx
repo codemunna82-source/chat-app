@@ -7,6 +7,7 @@ import {
   createMetaApp,
   listMetaApps,
   rotateMetaAppVerifyToken,
+  updateMetaApp,
   type MetaAppCreated,
   type MetaAppSummary,
 } from '@/lib/voxo';
@@ -56,6 +57,11 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
   const [created, setCreated] = useState<MetaAppCreated | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
+  /** Which app's credentials are being edited, if any. */
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editToken, setEditToken] = useState('');
+  const [editSecret, setEditSecret] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const load = () =>
     listMetaApps()
@@ -103,6 +109,45 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
       setError(err instanceof Error ? err.message : 'Could not generate a new verify token.');
     } finally {
       setRotating(null);
+    }
+  }
+
+  /**
+   * Set or replace an existing Business Manager's credentials.
+   *
+   * The access token is the one that matters in practice: without it the
+   * server falls back to the environment's token, which belongs to a
+   * DIFFERENT Business Manager and therefore cannot see this one's
+   * numbers at all — the BM sits at "0 numbers" with nothing saying why.
+   * There was no way to set it after creation, so the only route was to
+   * have pasted it into the add form on the first attempt.
+   *
+   * Both fields are optional here: whichever is filled in is replaced,
+   * and an empty one is left exactly as it was. Neither can be read back,
+   * so the inputs always start blank rather than pretending to show what
+   * is stored.
+   */
+  async function handleSaveCredentials(id: string) {
+    const token = editToken.trim();
+    const secret = editSecret.trim();
+    if (!token && !secret) return;
+
+    setSaving(true);
+    setError(null);
+    try {
+      await updateMetaApp(id, {
+        ...(token ? { accessToken: token } : {}),
+        ...(secret ? { appSecret: secret } : {}),
+      });
+      setEditing(null);
+      setEditToken('');
+      setEditSecret('');
+      await load();
+      await onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save those credentials.');
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -282,6 +327,70 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
                   It is shown once at creation and stored encrypted, so
                   without this an admin who closed that panel had no route
                   forward at all. */}
+              {editing === a.id ? (
+                <div className="mt-3 grid gap-3 rounded-2xl border border-border bg-surface/60 p-3">
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted">Access token</span>
+                    <Input
+                      value={editToken}
+                      onChange={(e) => setEditToken(e.target.value)}
+                      placeholder="EAA…"
+                      autoComplete="off"
+                    />
+                    <span className="text-[12px] leading-snug text-muted">
+                      A System User token from THIS Business Manager. Business settings &rarr; Users &rarr; System
+                      users &rarr; Generate new token, with whatsapp_business_management and
+                      whatsapp_business_messaging. A token from another BM cannot see these numbers.
+                    </span>
+                  </label>
+
+                  <label className="flex flex-col gap-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+                      App secret <span className="font-normal normal-case text-muted">(only to replace it)</span>
+                    </span>
+                    <Input
+                      value={editSecret}
+                      onChange={(e) => setEditSecret(e.target.value)}
+                      placeholder="Leave blank to keep the current one"
+                      autoComplete="off"
+                    />
+                  </label>
+
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Button
+                      type="button"
+                      onClick={() => void handleSaveCredentials(a.id)}
+                      disabled={saving || (!editToken.trim() && !editSecret.trim())}
+                    >
+                      {saving ? 'Saving…' : 'Save'}
+                    </Button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditing(null);
+                        setEditToken('');
+                        setEditSecret('');
+                      }}
+                      className="text-[13px] font-semibold text-muted hover:text-foreground"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="mt-2 flex flex-wrap items-center gap-4">
+              <button
+                type="button"
+                onClick={() => {
+                  setEditing(editing === a.id ? null : a.id);
+                  setEditToken('');
+                  setEditSecret('');
+                }}
+                className="text-[12.5px] font-semibold text-accent underline-offset-2 hover:underline"
+              >
+                {a.hasAccessToken ? 'Replace credentials' : 'Add an access token'}
+              </button>
               <button
                 type="button"
                 onClick={() => void handleRotate(a.id)}
@@ -290,6 +399,7 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
               >
                 {rotating === a.id ? 'Generating…' : 'Generate a new verify token'}
               </button>
+              </div>
             </li>
           ))}
         </ul>
