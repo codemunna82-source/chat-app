@@ -436,6 +436,19 @@ export function createMetaApp(input: {
   return request<MetaAppCreated>('/meta-apps', { method: 'POST', body: JSON.stringify(input) });
 }
 
+/**
+ * A fresh verify token, for an app whose first one was never copied.
+ *
+ * The old one stops working immediately, so the callback URL has to be
+ * saved again in Meta's dashboard — `mustReconfigureInMeta` says so
+ * rather than leaving the caller to know it.
+ */
+export function rotateMetaAppVerifyToken(id: string): Promise<MetaAppCreated & { mustReconfigureInMeta: boolean }> {
+  return request<MetaAppCreated & { mustReconfigureInMeta: boolean }>(`/meta-apps/${id}/verify-token`, {
+    method: 'POST',
+  });
+}
+
 export function updateMetaApp(
   id: string,
   patch: { name?: string; appSecret?: string; accessToken?: string; status?: 'ACTIVE' | 'DISABLED' },

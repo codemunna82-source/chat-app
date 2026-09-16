@@ -3,7 +3,13 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { createMetaApp, listMetaApps, type MetaAppCreated, type MetaAppSummary } from '@/lib/voxo';
+import {
+  createMetaApp,
+  listMetaApps,
+  rotateMetaAppVerifyToken,
+  type MetaAppCreated,
+  type MetaAppSummary,
+} from '@/lib/voxo';
 
 /**
  * The workspace's Business Managers.
@@ -49,6 +55,7 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<MetaAppCreated | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<string | null>(null);
 
   const load = () =>
     listMetaApps()
@@ -67,6 +74,36 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
       },
       () => setError('Could not copy — select the text and copy it by hand.'),
     );
+  }
+
+  /**
+   * Mint a new verify token for an app whose first one was lost.
+   *
+   * Confirmed first, because it INVALIDATES the current one: on a webhook
+   * that is already working in Meta, doing this by accident breaks it
+   * until the callback URL is saved again.
+   */
+  async function handleRotate(id: string) {
+    const app = apps?.find((a) => a.id === id);
+    if (
+      !window.confirm(
+        `Generate a new verify token for ${app?.name ?? 'this Business Manager'}?\n\n` +
+          'The current one stops working straight away, so you will have to save the callback URL ' +
+          'again in Meta. Only do this if you no longer have the token.',
+      )
+    ) {
+      return;
+    }
+    setRotating(id);
+    setError(null);
+    try {
+      setCreated(await rotateMetaAppVerifyToken(id));
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate a new verify token.');
+    } finally {
+      setRotating(null);
+    }
   }
 
   async function handleAdd(event: React.FormEvent) {
@@ -240,6 +277,19 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
               </dl>
 
               <p className="mt-2.5 truncate font-mono text-[12px] text-muted">{a.webhookUrl}</p>
+
+              {/* The way back from a verify token that was never copied.
+                  It is shown once at creation and stored encrypted, so
+                  without this an admin who closed that panel had no route
+                  forward at all. */}
+              <button
+                type="button"
+                onClick={() => void handleRotate(a.id)}
+                disabled={rotating === a.id}
+                className="mt-2 text-[12.5px] font-semibold text-accent underline-offset-2 hover:underline disabled:opacity-50"
+              >
+                {rotating === a.id ? 'Generating…' : 'Generate a new verify token'}
+              </button>
             </li>
           ))}
         </ul>
