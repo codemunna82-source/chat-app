@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  setNumberBusinessManager,
   addWhatsAppNumber,
   fetchMetaConfigHealth,
   registerNumberForCloudApi,
@@ -44,6 +45,10 @@ export function NumberSetup({
   const [phoneNumberId, setPhoneNumberId] = useState('');
   const [wabaId, setWabaId] = useState('');
   const [metaAppId, setMetaAppId] = useState('');
+  /** Which number's Business Manager is being changed, if any. */
+  const [movingId, setMovingId] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState('');
+  const [moveBusy, setMoveBusy] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [calling, setCalling] = useState<string | null>(null);
@@ -169,6 +174,29 @@ export function NumberSetup({
     }
   }
 
+  /**
+   * Move a number onto a different Business Manager.
+   *
+   * The server checks with Meta first and refuses if the target BM cannot
+   * see the number, so the error it returns is the actual diagnosis —
+   * usually that the System User has the app assigned but not the
+   * WhatsApp account. It is shown as-is rather than replaced.
+   */
+  async function handleMove(id: string) {
+    setMoveBusy(true);
+    setError(null);
+    try {
+      await setNumberBusinessManager(id, moveTarget || null);
+      setMovingId(null);
+      setMoveTarget('');
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not move that number.');
+    } finally {
+      setMoveBusy(false);
+    }
+  }
+
   return (
     <section className="mt-8 rounded-3xl border border-border bg-surface/80 p-5 sm:p-6">
       <div className="flex flex-wrap items-baseline justify-between gap-3">
@@ -216,9 +244,9 @@ export function NumberSetup({
             return (
               <li
                 key={n.id}
-                className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-2xl border border-border bg-surface/60 px-4 py-3"
+                className="flex flex-col gap-3 rounded-2xl border border-border bg-surface/60 px-4 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:gap-x-4 sm:gap-y-2"
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <p className="flex flex-wrap items-center gap-2 text-[15px] font-semibold">
                     <span className="truncate">{n.displayPhoneNumber}</span>
                     <span
@@ -254,12 +282,72 @@ export function NumberSetup({
                       {n.health.stale ? ' · reading is old' : ''}
                     </p>
                   ) : null}
+
+                  {/* Which Business Manager answers for this number.
+                      It decides which token sends and which webhook URL
+                      receives, and it was the one thing about a number
+                      this page never showed. */}
+                  <p className="mt-1 text-[12.5px] text-muted">
+                    Business Manager: <span className="text-foreground">{n.metaAppName ?? 'Server default'}</span>
+                    {metaApps.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMovingId(movingId === n.id ? null : n.id);
+                          setMoveTarget(n.metaAppId ?? '');
+                        }}
+                        className="ml-2 font-semibold text-accent underline-offset-2 hover:underline"
+                      >
+                        Change
+                      </button>
+                    ) : null}
+                  </p>
+
+                  {movingId === n.id ? (
+                    <div className="mt-2 flex flex-col gap-2 rounded-2xl border border-border bg-surface/70 p-3">
+                      <select
+                        value={moveTarget}
+                        onChange={(e) => setMoveTarget(e.target.value)}
+                        className="h-11 w-full rounded-xl glass-input px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                      >
+                        <option value="">The server&rsquo;s default configuration</option>
+                        {metaApps
+                          .filter((a) => a.status === 'ACTIVE')
+                          .map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                      </select>
+                      <p className="text-[12px] leading-snug text-muted">
+                        Checked with Meta before anything changes — if the new Business Manager cannot see this
+                        number, nothing is moved. Afterwards its webhook URL must be configured in Meta, or
+                        messages will send but never arrive.
+                      </p>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <Button
+                          className="h-9 min-h-9 px-3 text-[13px]"
+                          disabled={moveBusy || (moveTarget || null) === (n.metaAppId ?? null)}
+                          onClick={() => void handleMove(n.id)}
+                        >
+                          {moveBusy ? 'Checking with Meta…' : 'Move'}
+                        </Button>
+                        <button
+                          type="button"
+                          onClick={() => setMovingId(null)}
+                          className="text-[13px] font-semibold text-muted hover:text-foreground"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="flex shrink-0 flex-wrap items-center justify-end gap-3">
+                <div className="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
                   {/* WhatsApp voice calling, at Meta. Off by default on
                       every number, and the most common reason a call
                       never arrives. */}
-                  <label className="flex cursor-pointer items-center gap-2">
+                  <label className="flex w-full cursor-pointer items-center justify-between gap-2 sm:w-auto sm:justify-start">
                     <span className="text-[13px] font-medium text-muted">
                       {callingOn ? 'Calling on' : 'Calling off'}
                     </span>
@@ -288,7 +376,7 @@ export function NumberSetup({
                   {/* The access switch. A real checkbox underneath, so it
                       is reachable by keyboard and announced as what it is;
                       the track and knob are only its appearance. */}
-                  <label className="flex cursor-pointer items-center gap-2">
+                  <label className="flex w-full cursor-pointer items-center justify-between gap-2 sm:w-auto sm:justify-start">
                     <span className="text-[13px] font-medium text-muted">
                       {enabled ? 'Access on' : 'Access off'}
                     </span>
@@ -316,7 +404,7 @@ export function NumberSetup({
 
                   <Button
                     variant="outline"
-                    className="h-9 min-h-9 shrink-0 px-3 text-[13px]"
+                    className="h-9 min-h-9 w-full px-3 text-[13px] sm:w-auto sm:shrink-0"
                     disabled={busy !== null}
                     onClick={() => void handleRegister(n.id, n.displayPhoneNumber)}
                   >

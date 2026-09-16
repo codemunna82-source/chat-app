@@ -81,6 +81,9 @@ export interface WhatsAppNumber {
   messagingLimitTier?: string;
   healthCheckedAt?: string;
   health?: NumberHealth;
+  /** Which Business Manager this number answers on; null is the server default. */
+  metaAppId?: string | null;
+  metaAppName?: string | null;
 }
 
 /**
@@ -446,6 +449,19 @@ export function createMetaApp(input: {
 export function rotateMetaAppVerifyToken(id: string): Promise<MetaAppCreated & { mustReconfigureInMeta: boolean }> {
   return request<MetaAppCreated & { mustReconfigureInMeta: boolean }>(`/meta-apps/${id}/verify-token`, {
     method: 'POST',
+  });
+}
+
+/**
+ * Move a number onto a different Business Manager.
+ *
+ * The server refuses unless the TARGET BM's token can actually see the
+ * number at Meta, so a rejection here is the useful answer, not a hurdle.
+ */
+export function setNumberBusinessManager(id: string, metaAppId: string | null): Promise<WhatsAppNumber> {
+  return request<WhatsAppNumber>(`/whatsapp/numbers/${id}/business-manager`, {
+    method: 'PATCH',
+    body: JSON.stringify({ metaAppId }),
   });
 }
 
