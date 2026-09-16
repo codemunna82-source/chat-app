@@ -23,6 +23,7 @@ import { BusinessManagers } from '@/components/admin/BusinessManagers';
 import { Section } from '@/components/admin/Section';
 import { BusinessProfile } from '@/components/admin/BusinessProfile';
 import { SectionBoundary } from '@/components/admin/SectionBoundary';
+import { Modal } from '@/components/ui/modal';
 
 /**
  * User management, on the web.
@@ -266,22 +267,6 @@ export default function AdminPage() {
         title="Team"
         description="Who can sign in, what they can do, and which number's chats they see."
       >
-        {inviting || editing ? (
-          <MemberForm
-            member={editing}
-            numbers={numbers}
-            onClose={() => {
-              setInviting(false);
-              setEditing(null);
-            }}
-            onSaved={async () => {
-              setInviting(false);
-              setEditing(null);
-              await load();
-            }}
-          />
-        ) : null}
-
         <div className="mt-6">
         {members === null ? (
           <p className="text-sm text-muted">Loading…</p>
@@ -310,6 +295,38 @@ export default function AdminPage() {
         )}
         </div>
       </Section>
+
+      {/* In a dialog rather than inline, because "Add user" lives in the
+          page header and this section is the LAST of five. Opened inline,
+          the button looked dead: the form appeared somewhere below the
+          fold and was found by scrolling, if at all. */}
+      <Modal
+        open={inviting || editing !== null}
+        onClose={() => {
+          setInviting(false);
+          setEditing(null);
+        }}
+        title={editing ? 'Edit user' : 'Add user'}
+        description={
+          editing
+            ? 'Change what they can do, or reset the password they sign in with.'
+            : 'They sign in with the phone number you give them here.'
+        }
+      >
+        <MemberForm
+          member={editing}
+          numbers={numbers}
+          onClose={() => {
+            setInviting(false);
+            setEditing(null);
+          }}
+          onSaved={async () => {
+            setInviting(false);
+            setEditing(null);
+            await load();
+          }}
+        />
+      </Modal>
     </main>
   );
 }

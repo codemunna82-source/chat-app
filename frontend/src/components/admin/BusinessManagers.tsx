@@ -45,6 +45,36 @@ function CredentialState({ set }: { set: boolean }) {
   );
 }
 
+/**
+ * What is wrong with a pasted app secret, in words, or null if nothing is.
+ *
+ * Said while it is being typed rather than on submit, because the two
+ * credentials look nothing alike and are pasted into each other's boxes
+ * constantly — an access token starts `EAA` and runs to 200-odd
+ * characters, an app secret is exactly 32 hex digits. Submitting the
+ * wrong one used to answer "Request validation failed", which named
+ * neither the field nor the problem.
+ */
+function appSecretProblem(value: string): string | null {
+  const v = value.trim();
+  if (!v) return null;
+  if (/^EAA/i.test(v)) return 'That looks like an access token — it belongs in the access token box.';
+  if (/^\d+$/.test(v)) return 'That looks like an App ID, not the app secret.';
+  if (!/^[0-9a-fA-F]+$/.test(v)) return 'An app secret is only the characters 0-9 and a-f.';
+  if (/[A-F]/.test(v)) return 'Copy it again from Meta — an app secret is lowercase, and changing the case changes the key.';
+  if (v.length !== 32) return `An app secret is 32 characters. This one is ${v.length}.`;
+  return null;
+}
+
+/** The same, for an access token. */
+function accessTokenProblem(value: string): string | null {
+  const v = value.trim();
+  if (!v) return null;
+  if (/^[0-9a-f]{32}$/.test(v)) return 'That looks like an app secret — it belongs in the app secret box.';
+  if (!/^EAA/i.test(v)) return 'A System User token starts with “EAA”.';
+  return null;
+}
+
 export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promise<void> }) {
   const [apps, setApps] = useState<MetaAppSummary[] | null>(null);
   const [open, setOpen] = useState(false);
@@ -337,11 +367,18 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
                       placeholder="EAA…"
                       autoComplete="off"
                     />
-                    <span className="text-[12px] leading-snug text-muted">
-                      A System User token from THIS Business Manager. Business settings &rarr; Users &rarr; System
-                      users &rarr; Generate new token, with whatsapp_business_management and
-                      whatsapp_business_messaging. A token from another BM cannot see these numbers.
-                    </span>
+                    {accessTokenProblem(editToken) ? (
+                      <span className="text-[12px] font-medium leading-snug text-rose-500">
+                        {accessTokenProblem(editToken)}
+                      </span>
+                    ) : (
+                      <span className="text-[12px] leading-snug text-muted">
+                        A System User token from THIS Business Manager. Business settings &rarr; Users &rarr;
+                        System users &rarr; Generate new token, with whatsapp_business_management and
+                        whatsapp_business_messaging. Assign the WhatsApp account as an asset too, or the token
+                        will not see any numbers.
+                      </span>
+                    )}
                   </label>
 
                   <label className="flex flex-col gap-1.5">
@@ -354,13 +391,23 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
                       placeholder="Leave blank to keep the current one"
                       autoComplete="off"
                     />
+                    {appSecretProblem(editSecret) ? (
+                      <span className="text-[12px] font-medium leading-snug text-rose-500">
+                        {appSecretProblem(editSecret)}
+                      </span>
+                    ) : null}
                   </label>
 
                   <div className="flex flex-wrap items-center gap-3">
                     <Button
                       type="button"
                       onClick={() => void handleSaveCredentials(a.id)}
-                      disabled={saving || (!editToken.trim() && !editSecret.trim())}
+                      disabled={
+                        saving ||
+                        (!editToken.trim() && !editSecret.trim()) ||
+                        accessTokenProblem(editToken) !== null ||
+                        appSecretProblem(editSecret) !== null
+                      }
                     >
                       {saving ? 'Saving…' : 'Save'}
                     </Button>
@@ -434,9 +481,16 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
               placeholder="32 characters, 0-9 and a-f"
               autoComplete="off"
             />
-            <span className="text-[12px] leading-snug text-muted">
-              App settings &rarr; Basic &rarr; App Secret &rarr; Show. Stored encrypted and never shown again.
-            </span>
+            {appSecretProblem(appSecret) ? (
+              <span className="text-[12px] font-medium leading-snug text-rose-500">
+                {appSecretProblem(appSecret)}
+              </span>
+            ) : (
+              <span className="text-[12px] leading-snug text-muted">
+                App settings &rarr; Basic &rarr; App Secret &rarr; Show. 32 characters, 0-9 and a-f. Stored
+                encrypted and never shown again.
+              </span>
+            )}
           </label>
 
           <label className="flex flex-col gap-1.5">
@@ -450,9 +504,15 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
               placeholder="EAA…"
               autoComplete="off"
             />
-            <span className="text-[12px] leading-snug text-muted">
-              Needed to add numbers under this BM — a token from another BM cannot see them.
-            </span>
+            {accessTokenProblem(accessToken) ? (
+              <span className="text-[12px] font-medium leading-snug text-rose-500">
+                {accessTokenProblem(accessToken)}
+              </span>
+            ) : (
+              <span className="text-[12px] leading-snug text-muted">
+                Needed to add numbers under this BM — a token from another BM cannot see them.
+              </span>
+            )}
           </label>
 
           <div className="flex flex-wrap gap-2 sm:col-span-2">
