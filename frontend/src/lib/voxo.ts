@@ -465,6 +465,30 @@ export function setNumberBusinessManager(id: string, metaAppId: string | null): 
   });
 }
 
+export interface WhatsAppNudgePolicy {
+  /** Only the listed wording may be sent, in order. */
+  enforced: boolean;
+  nudges: string[];
+  /** How many WhatsApp messages are allowed — the list length when enforced. */
+  limit: number;
+  /** The wording the platform ships, so the screen can offer it back. */
+  defaults?: string[];
+}
+
+export function getWhatsAppNudges(): Promise<WhatsAppNudgePolicy> {
+  return request<WhatsAppNudgePolicy>('/tenants/settings/whatsapp-nudges');
+}
+
+export function updateWhatsAppNudges(patch: {
+  enforced?: boolean;
+  messages?: string[];
+}): Promise<WhatsAppNudgePolicy> {
+  return request<WhatsAppNudgePolicy>('/tenants/settings/whatsapp-nudges', {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  });
+}
+
 export function updateMetaApp(
   id: string,
   patch: { name?: string; appSecret?: string; accessToken?: string; status?: 'ACTIVE' | 'DISABLED' },

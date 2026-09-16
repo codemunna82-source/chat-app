@@ -24,6 +24,7 @@ import { Section } from '@/components/admin/Section';
 import { BusinessProfile } from '@/components/admin/BusinessProfile';
 import { SectionBoundary } from '@/components/admin/SectionBoundary';
 import { Modal } from '@/components/ui/modal';
+import { WhatsAppNudges } from '@/components/admin/WhatsAppNudges';
 
 /**
  * User management, on the web.
@@ -259,11 +260,23 @@ export default function AdminPage() {
           >
             <SectionBoundary><AutoReplySetup /></SectionBoundary>
           </Section>
+
+          {/* Immediately after the automatic reply, because that is the
+              order a customer experiences them: the approved template
+              with the link goes first, and these are what an agent may
+              follow it with. */}
+          <Section
+            step={5}
+            title="WhatsApp messages before the private chat"
+            description="The only wording an agent may send over WhatsApp until the customer opens their link — and, since the list length is the allowance, how many times."
+          >
+            <SectionBoundary><WhatsAppNudges /></SectionBoundary>
+          </Section>
         </>
       ) : null}
 
       <Section
-        step={isAdmin ? 5 : 1}
+        step={isAdmin ? 6 : 1}
         title="Team"
         description="Who can sign in, what they can do, and which number's chats they see."
       >
