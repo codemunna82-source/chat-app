@@ -618,6 +618,18 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const contentRef = useRef<HTMLDivElement | null>(null);
   const atBottomRef = useRef(true);
   atBottomRef.current = atBottom;
+  /**
+   * Sets the flag and its ref together.
+   *
+   * The ref is synced on render above, which is a beat late for the scroll
+   * handler: it fires many times between renders, and comparing against a
+   * ref that has not caught up would report the same crossing again and
+   * again. Writing both here makes the comparison true immediately.
+   */
+  const markAtBottom = useCallback((value: boolean) => {
+    atBottomRef.current = value;
+    setAtBottom(value);
+  }, []);
   const loadingOlderRef = useRef(false);
   loadingOlderRef.current = loadingOlder;
   /**
@@ -1457,7 +1469,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
     setDraft('');
     setEmojiOpen(false);
     tapFeedback();
-    setAtBottom(true);
+    markAtBottom(true);
     setMessages((prev) => [...prev, optimistic]);
     stopTyping();
 
@@ -1513,7 +1525,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
     setQueuedCount(outboxRef.current.length);
     setSending(false);
     void flushOutbox();
-  }, [draft, sending, token, stopTyping, demo, flushOutbox, replyTo]);
+  }, [draft, sending, token, stopTyping, demo, flushOutbox, replyTo, markAtBottom]);
 
   const handleFiles = useCallback(
     async (fileList: FileList | null) => {
@@ -1529,7 +1541,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       // silently attached it to whatever text was typed next.
       setReplyTo(null);
       setErrorText(null);
-      setAtBottom(true);
+      markAtBottom(true);
       setUploading((n) => n + files.length);
 
       // On screen before a byte has moved, the way every messenger does
@@ -1583,7 +1595,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
         setUploading((n) => Math.max(0, n - files.length));
       }
     },
-    [token, demo],
+    [token, demo, markAtBottom],
   );
 
   /**
@@ -1609,7 +1621,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       // all. Showing the card is the point of a demo; reading someone's
       // actual position to populate a page they opened to look around
       // would be taking something real for a pretend send.
-      setAtBottom(true);
+      markAtBottom(true);
       setMessages((prev) => [
         ...prev,
         {
@@ -1660,7 +1672,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
     setReplyTo(null);
     setErrorText(null);
-    setAtBottom(true);
+    markAtBottom(true);
     tapFeedback(10);
 
     try {
@@ -1674,7 +1686,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       if (err instanceof GuestLinkInvalidError) setPhase('invalid');
       else setErrorText(err instanceof Error ? err.message : 'Could not send your location.');
     }
-  }, [demo, token, replyTo]);
+  }, [demo, token, replyTo, markAtBottom]);
 
   /**
    * What this browser can do about notifications, decided after mount.
@@ -1788,7 +1800,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
       // Straight into the thread as a playable blob — nothing is uploaded,
       // which is the whole point of the demo.
       const url = URL.createObjectURL(result.blob);
-      setAtBottom(true);
+      markAtBottom(true);
       setMessages((prev) => [
         ...prev,
         {
@@ -1805,7 +1817,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
     setReplyTo(null);
     setErrorText(null);
-    setAtBottom(true);
+    markAtBottom(true);
     setUploading((n) => n + 1);
 
     /**
@@ -1858,7 +1870,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
     } finally {
       setUploading((n) => Math.max(0, n - 1));
     }
-  }, [recorder, token, demo]);
+  }, [recorder, token, demo, markAtBottom]);
 
   /**
    * Toggling a reaction.
@@ -2011,6 +2023,398 @@ export default function GuestChatWindow({ token }: { token: string }) {
         .join('')
         .toUpperCase(),
     [title],
+  );
+
+  /**
+   * The thread, built once per change to the thread.
+   *
+   * It used to be built inline in the JSX, which meant every bubble on
+   * screen was re-rendered by any state this component holds — and it
+   * holds the composer's draft and the pull-to-refresh distance. So a
+   * customer typing a twenty-character message rebuilt sixty bubbles
+   * twenty times, and dragging the thread down rebuilt them on every
+   * touchmove event. That is the jank, and none of it was about the
+   * messages.
+   *
+   * Memoised on what the rows actually read, which does not include
+   * either of those.
+   */
+  const rows = useMemo(
+    () =>
+                  visible.map((m, i) => {
+                    // Photos sent together are drawn once, as a grid, by the
+                    // first of them; the rest render nothing of their own.
+                    const album = albumByFirstId.get(m.id);
+                    if (album) {
+                      return (
+                        <AlbumRow
+                          key={`album-${m.id}`}
+                          messages={album}
+                          token={token}
+                          mine={m.from === 'me'}
+                          newDay={!visible[i - 1] || dayLabel(visible[i - 1]!.createdAt) !== dayLabel(m.createdAt)}
+                          // The whole batch, not the three that have tiles —
+                          // the viewer's strip is how the hidden ones are
+                          // reached at all.
+                          onOpen={(index) => setViewer({ photos: album, index })}
+                        />
+                      );
+                    }
+                    if (inAlbum.has(m.id)) return null;
+    
+                    const prev = visible[i - 1];
+                    const next = visible[i + 1];
+                    const mine = m.from === 'me';
+                    const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
+                    const first = newDay || startsNewGroup(m, prev);
+                    const last =
+                      !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
+                    // A local preview counts as an image too: the file is on
+                    // screen before the server has an id for it.
+                    // Taken back by whoever sent it. The server clears the
+                    // content when it does that, so every branch below would
+                    // already fall through to nothing — this is what puts the
+                    // tombstone in the empty bubble, and what stops a payload
+                    // from an older server rendering a photo it should not.
+                    const revoked = Boolean(m.revokedAt);
+                    const isImage =
+                      !revoked && (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'image';
+                    // localUrl as well as mediaId: the bubble for a recording
+                    // still uploading has no id yet and must still render.
+                    const isVoice = !revoked && (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'audio';
+                    // Only when the coordinates actually came through. A
+                    // location message from before this field existed still has
+                    // its text line, and rendering it as a pin at (0, 0) would
+                    // be worse than rendering it as the sentence it is.
+                    const place = !revoked && m.type === 'location' ? m.location : undefined;
+                    const highlighted = report?.message?.id === m.id || jumpedTo === m.id;
+                    const hasReactions = (m.reactions?.length ?? 0) > 0;
+                    const stamp = (
+                      <>
+                        {formatTime(m.createdAt)}
+                        {mine && <MessageTicks pending={m.pending} status={m.status} />}
+                      </>
+                    );
+    
+                    return (
+                      <li key={m.id} className="contents">
+                        {newDay && (
+                          <div className="my-3 flex justify-center">
+                            <span className="rounded-md bg-[var(--wa-chip)] px-3 py-[5px] text-[12px] font-medium uppercase tracking-wide text-[var(--wa-chip-text)] shadow-[var(--wa-bubble-shadow)]">
+                              {dayLabel(m.createdAt)}
+                            </span>
+                          </div>
+                        )}
+    
+                        <div
+                          /* The anchor a jump scrolls to, and deliberately
+                             NOT the <li> above: that is `display: contents`,
+                             which generates no box at all, so asking it where
+                             it is returns nothing useful and the jump would
+                             land at the top of the thread every time. */
+                          id={rowDomId(m.id)}
+                          className={[
+                            // Not wa-row while this message's reaction row is
+                            // open: content-visibility's paint containment clips
+                            // to the row's box, and the row of emoji sits above
+                            // the bubble, outside it. One row rendering without
+                            // containment for as long as a menu is open costs
+                            // nothing.
+                            reactingTo === m.id ? 'flex px-1' : 'wa-row flex px-1',
+                            mine ? 'justify-end' : 'justify-start',
+                            last ? 'mb-2' : 'mb-[2px]',
+                            // Padding, not margin. content-visibility brings
+                            // paint containment with it, which clips anything
+                            // outside the row's own box — and the reaction chip
+                            // deliberately hangs off the bottom of the bubble.
+                            // Margin sits outside that box and was letting the
+                            // chip be cut in half; padding grows the box so it
+                            // fits inside.
+                            hasReactions ? 'pb-3' : '',
+                          ].join(' ')}
+                        >
+                          <div
+                            className={[
+                              'relative max-w-[85%] rounded-[7.5px] shadow-[var(--wa-bubble-shadow)] sm:max-w-[65%] md:max-w-[440px]',
+                              isImage || place
+                                ? 'p-[3px]'
+                                : isVoice
+                                  ? 'px-[7px] pb-[6px] pt-[5px]'
+                                  : 'px-[9px] pb-[7px] pt-[6px]',
+                              // The message the open report sheet is about. It
+                              // stays exactly where it was in the thread — the
+                              // ring is the whole highlight — so the customer
+                              // can still read what came before and after it
+                              // while deciding what to write.
+                              highlighted ? 'wa-highlighted' : '',
+                              mine ? 'bg-[var(--wa-out)]' : 'bg-[var(--wa-in)]',
+                              // Only the opening bubble of a run carries a tail
+                              // and a squared corner — a tail on every bubble is
+                              // the tell of a chat UI copied from a screenshot.
+                              first ? (mine ? 'wa-tail-out rounded-tr-none' : 'wa-tail-in rounded-tl-none') : '',
+                              m.text ? 'select-none' : '',
+                            ].join(' ')}
+                            {...bubbleGestures(m)}
+                          >
+                            {m.replyTo && (
+                              /* The quote sits inside the bubble with a bar down
+                                 its leading edge, the way the app it copies does
+                                 — a quote above the bubble reads as a separate
+                                 message. */
+                              <button
+                                type="button"
+                                /* Tapping the quote goes to what it quotes —
+                                   the thing every messenger does, and the
+                                   reason a quote is worth rendering at all: a
+                                   reply to something from twenty messages ago
+                                   is unreadable until you can get back to it.
+    
+                                   Its own button rather than the whole
+                                   bubble, because a plain tap on a bubble
+                                   already means other things here (opening a
+                                   photo, playing a voice note), and one
+                                   gesture that sometimes scrolls the thread
+                                   away instead is the worst kind of
+                                   surprise. */
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  jumpTo(m.replyTo!.id);
+                                }}
+                                aria-label="Go to the quoted message"
+                                className={`mb-1 flex w-full items-stretch gap-2 overflow-hidden rounded-[5px] border-l-[3px] pl-2 pr-1 py-1 text-left text-[13px] leading-[17px] transition active:opacity-70 ${
+                                  m.replyTo.from === 'me'
+                                    ? 'border-[var(--wa-accent)] bg-black/[0.06]'
+                                    : 'border-[#53bdeb] bg-black/[0.05]'
+                                }`}
+                              >
+                                <ReplyQuote token={token} quote={m.replyTo} businessName={title} />
+                              </button>
+                            )}
+    
+                            {revoked ? (
+                              /* The line both sides read. Italic and dimmed
+                                 rather than styled as a normal message,
+                                 because it is not one — it is the shape a
+                                 message used to occupy, kept so the thread
+                                 still reads as the conversation that
+                                 happened. The icon is what makes it legible
+                                 at a glance among real bubbles. */
+                              <p className="flex items-center gap-1.5 pr-[52px] text-[14.2px] italic leading-[19px] opacity-60">
+                                <BlockIcon className="h-[15px] w-[15px] shrink-0" />
+                                {m.revokedBy === 'customer'
+                                  ? mine
+                                    ? 'You deleted this message'
+                                    : 'This message was deleted'
+                                  : mine
+                                    ? 'This message was deleted'
+                                    : `${title} deleted this message`}
+                              </p>
+                            ) : isImage ? (
+                              m.localUrl ? (
+                                // Still going up: the picked file itself,
+                                // under a cover that says how far it has got.
+                                <span className="relative block">
+                                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                                  <img
+                                    src={m.localUrl}
+                                    alt=""
+                                    // w-auto, matching ChatImage below: w-full
+                                    // with object-cover stretched the picked
+                                    // file to the bubble and cropped it, so a
+                                    // portrait photo changed shape the moment
+                                    // the upload finished and the real image
+                                    // replaced it.
+                                    className="block max-h-[320px] w-auto max-w-full rounded-[7px] object-cover"
+                                  />
+                                  <UploadCover progress={m.uploadProgress} />
+                                </span>
+                              ) : (
+                                <ChatImage
+                                  token={token}
+                                  mediaId={m.mediaId!}
+                                  onOpen={() => setViewer({ photos: [m], index: 0 })}
+                                />
+                              )
+                            ) : isVoice ? (
+                              <VoiceBubble
+                                token={token}
+                                mediaId={m.mediaId}
+                                localUrl={m.localUrl}
+                                mine={mine}
+                              />
+                            ) : place ? (
+                              <LocationBubble place={place} mine={mine} />
+                            ) : (
+                              m.hasMedia &&
+                              !m.text && (
+                                <p className="italic text-[14.2px] opacity-70">[{m.type}]</p>
+                              )
+                            )}
+    
+                            {/* A location's text is its own coordinate line,
+                                already printed inside the card. Repeating it
+                                underneath is the sort of duplication that only
+                                happens because the branch above forgot to
+                                exclude it. */}
+                            {m.text && !place && (
+                              <p
+                                className={`whitespace-pre-wrap break-words text-[14.2px] leading-[19px] ${
+                                  // A captioned image keeps the picture flush to
+                                  // the bubble edge but the words must not be.
+                                  isImage ? 'px-[6px] pb-[2px] pt-[4px]' : ''
+                                }`}
+                              >
+                                {m.text}
+                                {/* An invisible twin of the stamp, inline at the
+                                    end of the text, reserves exactly the room the
+                                    real one needs. A fixed pixel width has to
+                                    guess, and guesses short for "10:45 AM ✓✓" —
+                                    which is precisely when the stamp lands on top
+                                    of the last word. */}
+                                <span
+                                  aria-hidden
+                                  className="invisible ml-2 inline-flex select-none items-center gap-[3px] align-bottom text-[11px] leading-none"
+                                >
+                                  {stamp}
+                                </span>
+                              </p>
+                            )}
+    
+                            <span
+                              className={[
+                                'absolute flex items-center gap-[3px] text-[11px] leading-none',
+                                isVoice ? 'bottom-[6px] right-[9px]' : '',
+                                // White over the picture only when the picture
+                                // is what is underneath. With a caption the stamp
+                                // sits on the words instead, where white on the
+                                // bubble's own background is unreadable.
+                                // The location card's stamp sits on its label
+                                // strip, which is the bubble's own colour — so
+                                // it takes the bubble's meta colour, not the
+                                // white-on-photo treatment.
+                                isImage && !m.text
+                                  ? 'bottom-[9px] right-[10px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]'
+                                  : place
+                                    ? 'bottom-[8px] right-[11px] text-[var(--wa-meta)]'
+                                    : 'bottom-[5px] right-[9px] text-[var(--wa-meta)]',
+                              ].join(' ')}
+                            >
+                              {stamp}
+                            </span>
+    
+                            {m.reactions && m.reactions.length > 0 && (
+                              /* Overlapping the bottom edge, so a reaction reads
+                                 as attached to its message rather than as a tiny
+                                 message of its own underneath. */
+                              <div
+                                className={`absolute -bottom-[11px] flex items-center gap-0.5 rounded-full border border-[var(--wa-divider)] bg-[var(--wa-in)] px-1.5 py-[2px] text-[12px] shadow-[var(--wa-bubble-shadow)] ${
+                                  mine ? 'right-2' : 'left-2'
+                                }`}
+                              >
+                                {m.reactions.map((r, ri) => (
+                                  <span key={`${r.emoji}-${ri}`}>{r.emoji}</span>
+                                ))}
+                              </div>
+                            )}
+    
+                            {reactingTo === m.id && (
+                              <div
+                                data-reaction-row
+                                // The row sits inside the bubble that carries the
+                                // gestures. Without this, holding an emoji button
+                                // for longer than the press threshold re-armed the
+                                // hold, marked the gesture as acted, and the click
+                                // guard then swallowed the button's own click —
+                                // the reaction simply never happened.
+                                onPointerDown={(e) => e.stopPropagation()}
+                                onPointerMove={(e) => e.stopPropagation()}
+                                className={`absolute -top-12 z-20 flex items-center gap-1 rounded-full bg-[var(--wa-card)] px-2 py-1.5 shadow-[var(--wa-panel-shadow)] ${
+                                  mine ? 'right-0' : 'left-0'
+                                }`}
+                              >
+                                {QUICK_REACTIONS.map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    type="button"
+                                    onClick={() => void react(m.id, emoji)}
+                                    aria-label={`React ${emoji}`}
+                                    className="flex h-9 w-9 items-center justify-center rounded-full text-[22px] leading-none transition active:scale-90 hover:bg-[var(--wa-hover)]"
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+    
+                                {!m.pending && !m.revokedAt && (
+                                  <>
+                                    <span
+                                      className="mx-0.5 h-5 w-px shrink-0 bg-[var(--wa-divider)]"
+                                      aria-hidden
+                                    />
+                                    {/* On every message, not only the
+                                        customer's own: "delete for me" tidies
+                                        this window and applies just as much to
+                                        something the business sent. Which of
+                                        the two deletes is actually on offer is
+                                        the sheet's decision, not this
+                                        button's. */}
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setReactingTo(null);
+                                        setDeleting(m);
+                                      }}
+                                      aria-label="Delete this message"
+                                      title="Delete this message"
+                                      className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
+                                    >
+                                      <TrashIcon className="h-[18px] w-[18px]" />
+                                    </button>
+                                    {/* Reporting one message lives here, at
+                                        the end of the row a long press already
+                                        opens, for the same reason the emoji do:
+                                        it is about THIS message, and any other
+                                        entry point would make the customer
+                                        describe which one in words. Only
+                                        messages from the business — reporting
+                                        your own is not a thing anyone means to
+                                        do. */}
+                                    {m.from === 'business' && (
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setReactingTo(null);
+                                          setReport({ message: m, intent: 'report' });
+                                        }}
+                                        aria-label="Report this message"
+                                        title="Report this message"
+                                        className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
+                                      >
+                                        <FlagIcon className="h-[18px] w-[18px]" />
+                                      </button>
+                                    )}
+                                  </>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })
+    ,
+    [
+      albumByFirstId,
+      bubbleGestures,
+      inAlbum,
+      jumpTo,
+      jumpedTo,
+      react,
+      reactingTo,
+      report?.message?.id,
+      title,
+      token,
+      visible,
+    ],
   );
 
   if (phase === 'loading') return <ChatSkeleton />;
@@ -2182,7 +2586,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
           onScroll={(e) => {
             const el = e.currentTarget;
             if (settledRef.current && el.scrollTop < 80) showOlder();
-            setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 120);
+            // Only on the crossing, not on every frame of the scroll. This
+            // fires dozens of times a second on a phone, and each call
+            // re-entered the component — React bails out of an identical
+            // value, but only after running the render that produced it.
+            const bottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+            if (bottom !== atBottomRef.current) markAtBottom(bottom);
           }}
           /* Pull down at the top to fetch the page before. Scrolling to the
              top already triggers it, but on a phone that only works if
@@ -2290,366 +2699,7 @@ export default function GuestChatWindow({ token }: { token: string }) {
             </div>
 
             <ul className="flex flex-col">
-              {visible.map((m, i) => {
-                // Photos sent together are drawn once, as a grid, by the
-                // first of them; the rest render nothing of their own.
-                const album = albumByFirstId.get(m.id);
-                if (album) {
-                  return (
-                    <AlbumRow
-                      key={`album-${m.id}`}
-                      messages={album}
-                      token={token}
-                      mine={m.from === 'me'}
-                      newDay={!visible[i - 1] || dayLabel(visible[i - 1]!.createdAt) !== dayLabel(m.createdAt)}
-                      // The whole batch, not the three that have tiles —
-                      // the viewer's strip is how the hidden ones are
-                      // reached at all.
-                      onOpen={(index) => setViewer({ photos: album, index })}
-                    />
-                  );
-                }
-                if (inAlbum.has(m.id)) return null;
-
-                const prev = visible[i - 1];
-                const next = visible[i + 1];
-                const mine = m.from === 'me';
-                const newDay = !prev || dayLabel(prev.createdAt) !== dayLabel(m.createdAt);
-                const first = newDay || startsNewGroup(m, prev);
-                const last =
-                  !next || dayLabel(next.createdAt) !== dayLabel(m.createdAt) || startsNewGroup(next, m);
-                // A local preview counts as an image too: the file is on
-                // screen before the server has an id for it.
-                // Taken back by whoever sent it. The server clears the
-                // content when it does that, so every branch below would
-                // already fall through to nothing — this is what puts the
-                // tombstone in the empty bubble, and what stops a payload
-                // from an older server rendering a photo it should not.
-                const revoked = Boolean(m.revokedAt);
-                const isImage =
-                  !revoked && (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'image';
-                // localUrl as well as mediaId: the bubble for a recording
-                // still uploading has no id yet and must still render.
-                const isVoice = !revoked && (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'audio';
-                // Only when the coordinates actually came through. A
-                // location message from before this field existed still has
-                // its text line, and rendering it as a pin at (0, 0) would
-                // be worse than rendering it as the sentence it is.
-                const place = !revoked && m.type === 'location' ? m.location : undefined;
-                const highlighted = report?.message?.id === m.id || jumpedTo === m.id;
-                const hasReactions = (m.reactions?.length ?? 0) > 0;
-                const stamp = (
-                  <>
-                    {formatTime(m.createdAt)}
-                    {mine && <MessageTicks pending={m.pending} status={m.status} />}
-                  </>
-                );
-
-                return (
-                  <li key={m.id} className="contents">
-                    {newDay && (
-                      <div className="my-3 flex justify-center">
-                        <span className="rounded-md bg-[var(--wa-chip)] px-3 py-[5px] text-[12px] font-medium uppercase tracking-wide text-[var(--wa-chip-text)] shadow-[var(--wa-bubble-shadow)]">
-                          {dayLabel(m.createdAt)}
-                        </span>
-                      </div>
-                    )}
-
-                    <div
-                      /* The anchor a jump scrolls to, and deliberately
-                         NOT the <li> above: that is `display: contents`,
-                         which generates no box at all, so asking it where
-                         it is returns nothing useful and the jump would
-                         land at the top of the thread every time. */
-                      id={rowDomId(m.id)}
-                      className={[
-                        // Not wa-row while this message's reaction row is
-                        // open: content-visibility's paint containment clips
-                        // to the row's box, and the row of emoji sits above
-                        // the bubble, outside it. One row rendering without
-                        // containment for as long as a menu is open costs
-                        // nothing.
-                        reactingTo === m.id ? 'flex px-1' : 'wa-row flex px-1',
-                        mine ? 'justify-end' : 'justify-start',
-                        last ? 'mb-2' : 'mb-[2px]',
-                        // Padding, not margin. content-visibility brings
-                        // paint containment with it, which clips anything
-                        // outside the row's own box — and the reaction chip
-                        // deliberately hangs off the bottom of the bubble.
-                        // Margin sits outside that box and was letting the
-                        // chip be cut in half; padding grows the box so it
-                        // fits inside.
-                        hasReactions ? 'pb-3' : '',
-                      ].join(' ')}
-                    >
-                      <div
-                        className={[
-                          'relative max-w-[85%] rounded-[7.5px] shadow-[var(--wa-bubble-shadow)] sm:max-w-[65%] md:max-w-[440px]',
-                          isImage || place
-                            ? 'p-[3px]'
-                            : isVoice
-                              ? 'px-[7px] pb-[6px] pt-[5px]'
-                              : 'px-[9px] pb-[7px] pt-[6px]',
-                          // The message the open report sheet is about. It
-                          // stays exactly where it was in the thread — the
-                          // ring is the whole highlight — so the customer
-                          // can still read what came before and after it
-                          // while deciding what to write.
-                          highlighted ? 'wa-highlighted' : '',
-                          mine ? 'bg-[var(--wa-out)]' : 'bg-[var(--wa-in)]',
-                          // Only the opening bubble of a run carries a tail
-                          // and a squared corner — a tail on every bubble is
-                          // the tell of a chat UI copied from a screenshot.
-                          first ? (mine ? 'wa-tail-out rounded-tr-none' : 'wa-tail-in rounded-tl-none') : '',
-                          m.text ? 'select-none' : '',
-                        ].join(' ')}
-                        {...bubbleGestures(m)}
-                      >
-                        {m.replyTo && (
-                          /* The quote sits inside the bubble with a bar down
-                             its leading edge, the way the app it copies does
-                             — a quote above the bubble reads as a separate
-                             message. */
-                          <button
-                            type="button"
-                            /* Tapping the quote goes to what it quotes —
-                               the thing every messenger does, and the
-                               reason a quote is worth rendering at all: a
-                               reply to something from twenty messages ago
-                               is unreadable until you can get back to it.
-
-                               Its own button rather than the whole
-                               bubble, because a plain tap on a bubble
-                               already means other things here (opening a
-                               photo, playing a voice note), and one
-                               gesture that sometimes scrolls the thread
-                               away instead is the worst kind of
-                               surprise. */
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              jumpTo(m.replyTo!.id);
-                            }}
-                            aria-label="Go to the quoted message"
-                            className={`mb-1 flex w-full items-stretch gap-2 overflow-hidden rounded-[5px] border-l-[3px] pl-2 pr-1 py-1 text-left text-[13px] leading-[17px] transition active:opacity-70 ${
-                              m.replyTo.from === 'me'
-                                ? 'border-[var(--wa-accent)] bg-black/[0.06]'
-                                : 'border-[#53bdeb] bg-black/[0.05]'
-                            }`}
-                          >
-                            <ReplyQuote token={token} quote={m.replyTo} businessName={title} />
-                          </button>
-                        )}
-
-                        {revoked ? (
-                          /* The line both sides read. Italic and dimmed
-                             rather than styled as a normal message,
-                             because it is not one — it is the shape a
-                             message used to occupy, kept so the thread
-                             still reads as the conversation that
-                             happened. The icon is what makes it legible
-                             at a glance among real bubbles. */
-                          <p className="flex items-center gap-1.5 pr-[52px] text-[14.2px] italic leading-[19px] opacity-60">
-                            <BlockIcon className="h-[15px] w-[15px] shrink-0" />
-                            {m.revokedBy === 'customer'
-                              ? mine
-                                ? 'You deleted this message'
-                                : 'This message was deleted'
-                              : mine
-                                ? 'This message was deleted'
-                                : `${title} deleted this message`}
-                          </p>
-                        ) : isImage ? (
-                          m.localUrl ? (
-                            // Still going up: the picked file itself,
-                            // under a cover that says how far it has got.
-                            <span className="relative block">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={m.localUrl}
-                                alt=""
-                                // w-auto, matching ChatImage below: w-full
-                                // with object-cover stretched the picked
-                                // file to the bubble and cropped it, so a
-                                // portrait photo changed shape the moment
-                                // the upload finished and the real image
-                                // replaced it.
-                                className="block max-h-[320px] w-auto max-w-full rounded-[7px] object-cover"
-                              />
-                              <UploadCover progress={m.uploadProgress} />
-                            </span>
-                          ) : (
-                            <ChatImage
-                              token={token}
-                              mediaId={m.mediaId!}
-                              onOpen={() => setViewer({ photos: [m], index: 0 })}
-                            />
-                          )
-                        ) : isVoice ? (
-                          <VoiceBubble
-                            token={token}
-                            mediaId={m.mediaId}
-                            localUrl={m.localUrl}
-                            mine={mine}
-                          />
-                        ) : place ? (
-                          <LocationBubble place={place} mine={mine} />
-                        ) : (
-                          m.hasMedia &&
-                          !m.text && (
-                            <p className="italic text-[14.2px] opacity-70">[{m.type}]</p>
-                          )
-                        )}
-
-                        {/* A location's text is its own coordinate line,
-                            already printed inside the card. Repeating it
-                            underneath is the sort of duplication that only
-                            happens because the branch above forgot to
-                            exclude it. */}
-                        {m.text && !place && (
-                          <p
-                            className={`whitespace-pre-wrap break-words text-[14.2px] leading-[19px] ${
-                              // A captioned image keeps the picture flush to
-                              // the bubble edge but the words must not be.
-                              isImage ? 'px-[6px] pb-[2px] pt-[4px]' : ''
-                            }`}
-                          >
-                            {m.text}
-                            {/* An invisible twin of the stamp, inline at the
-                                end of the text, reserves exactly the room the
-                                real one needs. A fixed pixel width has to
-                                guess, and guesses short for "10:45 AM ✓✓" —
-                                which is precisely when the stamp lands on top
-                                of the last word. */}
-                            <span
-                              aria-hidden
-                              className="invisible ml-2 inline-flex select-none items-center gap-[3px] align-bottom text-[11px] leading-none"
-                            >
-                              {stamp}
-                            </span>
-                          </p>
-                        )}
-
-                        <span
-                          className={[
-                            'absolute flex items-center gap-[3px] text-[11px] leading-none',
-                            isVoice ? 'bottom-[6px] right-[9px]' : '',
-                            // White over the picture only when the picture
-                            // is what is underneath. With a caption the stamp
-                            // sits on the words instead, where white on the
-                            // bubble's own background is unreadable.
-                            // The location card's stamp sits on its label
-                            // strip, which is the bubble's own colour — so
-                            // it takes the bubble's meta colour, not the
-                            // white-on-photo treatment.
-                            isImage && !m.text
-                              ? 'bottom-[9px] right-[10px] text-white drop-shadow-[0_1px_2px_rgba(0,0,0,0.7)]'
-                              : place
-                                ? 'bottom-[8px] right-[11px] text-[var(--wa-meta)]'
-                                : 'bottom-[5px] right-[9px] text-[var(--wa-meta)]',
-                          ].join(' ')}
-                        >
-                          {stamp}
-                        </span>
-
-                        {m.reactions && m.reactions.length > 0 && (
-                          /* Overlapping the bottom edge, so a reaction reads
-                             as attached to its message rather than as a tiny
-                             message of its own underneath. */
-                          <div
-                            className={`absolute -bottom-[11px] flex items-center gap-0.5 rounded-full border border-[var(--wa-divider)] bg-[var(--wa-in)] px-1.5 py-[2px] text-[12px] shadow-[var(--wa-bubble-shadow)] ${
-                              mine ? 'right-2' : 'left-2'
-                            }`}
-                          >
-                            {m.reactions.map((r, ri) => (
-                              <span key={`${r.emoji}-${ri}`}>{r.emoji}</span>
-                            ))}
-                          </div>
-                        )}
-
-                        {reactingTo === m.id && (
-                          <div
-                            data-reaction-row
-                            // The row sits inside the bubble that carries the
-                            // gestures. Without this, holding an emoji button
-                            // for longer than the press threshold re-armed the
-                            // hold, marked the gesture as acted, and the click
-                            // guard then swallowed the button's own click —
-                            // the reaction simply never happened.
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onPointerMove={(e) => e.stopPropagation()}
-                            className={`absolute -top-12 z-20 flex items-center gap-1 rounded-full bg-[var(--wa-card)] px-2 py-1.5 shadow-[var(--wa-panel-shadow)] ${
-                              mine ? 'right-0' : 'left-0'
-                            }`}
-                          >
-                            {QUICK_REACTIONS.map((emoji) => (
-                              <button
-                                key={emoji}
-                                type="button"
-                                onClick={() => void react(m.id, emoji)}
-                                aria-label={`React ${emoji}`}
-                                className="flex h-9 w-9 items-center justify-center rounded-full text-[22px] leading-none transition active:scale-90 hover:bg-[var(--wa-hover)]"
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-
-                            {!m.pending && !m.revokedAt && (
-                              <>
-                                <span
-                                  className="mx-0.5 h-5 w-px shrink-0 bg-[var(--wa-divider)]"
-                                  aria-hidden
-                                />
-                                {/* On every message, not only the
-                                    customer's own: "delete for me" tidies
-                                    this window and applies just as much to
-                                    something the business sent. Which of
-                                    the two deletes is actually on offer is
-                                    the sheet's decision, not this
-                                    button's. */}
-                                <button
-                                  type="button"
-                                  onClick={() => {
-                                    setReactingTo(null);
-                                    setDeleting(m);
-                                  }}
-                                  aria-label="Delete this message"
-                                  title="Delete this message"
-                                  className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
-                                >
-                                  <TrashIcon className="h-[18px] w-[18px]" />
-                                </button>
-                                {/* Reporting one message lives here, at
-                                    the end of the row a long press already
-                                    opens, for the same reason the emoji do:
-                                    it is about THIS message, and any other
-                                    entry point would make the customer
-                                    describe which one in words. Only
-                                    messages from the business — reporting
-                                    your own is not a thing anyone means to
-                                    do. */}
-                                {m.from === 'business' && (
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setReactingTo(null);
-                                      setReport({ message: m, intent: 'report' });
-                                    }}
-                                    aria-label="Report this message"
-                                    title="Report this message"
-                                    className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--wa-icon)] transition active:scale-90 hover:bg-[var(--wa-hover)]"
-                                  >
-                                    <FlagIcon className="h-[18px] w-[18px]" />
-                                  </button>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  </li>
-                );
-              })}
+              {rows}
             </ul>
 
             {agentTyping && <TypingBubble />}
@@ -3560,23 +3610,126 @@ function ViewerThumb({ token, message }: { token: string; message: ThreadMessage
  * The object URL is revoked on unmount. Without that, every photo the
  * customer opens stays in memory for the life of the tab.
  */
+/**
+ * Photos already downloaded, so scrolling past one twice costs one fetch.
+ *
+ * The thread's render window only ever GROWS — scrolling up mounts more
+ * and unmounts nothing — so without a shared cache every photo held its
+ * own blob forever, and every remount paid for the bytes again. Keyed on
+ * id and width because the same photo is fetched at two sizes.
+ *
+ * Insertion-ordered, so the first key is the least recently used. The cap
+ * is far above the number of photos that can be near the viewport at
+ * once, which is what makes eviction safe: anything evicted is long off
+ * screen. Evicting revokes, and that is the only place a cached URL is
+ * revoked — a shared URL released on one component's unmount would blank
+ * the photo in every other one still showing it.
+ */
+const MEDIA_CACHE_LIMIT = 30;
+const mediaCache = new Map<string, string>();
+
+/** A plain read, safe to do while rendering. */
+function peekMediaCache(key: string): string | undefined {
+  return mediaCache.get(key);
+}
+
+/** Marks the entry as recently used, so eviction takes the right one. */
+function touchMediaCache(key: string): void {
+  const hit = mediaCache.get(key);
+  if (!hit) return;
+  mediaCache.delete(key);
+  mediaCache.set(key, hit);
+}
+
+function writeMediaCache(key: string, objectUrl: string): void {
+  mediaCache.set(key, objectUrl);
+  while (mediaCache.size > MEDIA_CACHE_LIMIT) {
+    const oldest = mediaCache.keys().next().value;
+    if (oldest === undefined) break;
+    const evicted = mediaCache.get(oldest);
+    mediaCache.delete(oldest);
+    if (evicted) URL.revokeObjectURL(evicted);
+  }
+}
+
 function useMediaObjectUrl(
   token: string,
   message: Pick<ThreadMessage, 'mediaId' | 'localUrl'>,
   width: 480 | 960,
-): { url: string | null; failed: boolean } {
+  /**
+   * Wait until the photo is near the viewport before fetching it.
+   *
+   * For the thread only. Scrolling up grows the window by 120 messages at
+   * a time and never shrinks it, so without this a customer who scrolls
+   * through a year of history has every photo in it downloading at once —
+   * on the connection they are reading it over. The viewer and the header
+   * avatar stay eager: they are on screen by definition, and an observer
+   * that never fires there would simply never load them.
+   */
+  lazy = false,
+): { url: string | null; failed: boolean; ref: (node: HTMLElement | null) => void } {
   const mediaId = message.mediaId ?? null;
   const direct =
     message.localUrl ?? (mediaId?.startsWith('demo:') ? mediaId.slice('demo:'.length) : null);
+  const cacheKey = mediaId ? `${mediaId}:${width}` : null;
 
-  const [url, setUrl] = useState<string | null>(direct);
+  const [url, setUrl] = useState<string | null>(null);
+  // Read while rendering rather than copied into state by an effect: the
+  // cache is an outside store, and a photo already in it should be on
+  // screen on the first paint, not one render later.
+  const cached = cacheKey ? peekMediaCache(cacheKey) : undefined;
   const [failed, setFailed] = useState(false);
+  // A browser without the observer fetches straight away: never showing
+  // the photo would be a far worse trade than fetching it early.
+  const [near, setNear] = useState(
+    !lazy || typeof IntersectionObserver === 'undefined',
+  );
+
+  const observerRef = useRef<IntersectionObserver | null>(null);
+
+  /**
+   * A callback ref, not an effect reading `ref.current`.
+   *
+   * The element this watches is the placeholder, which is replaced by the
+   * <img> the moment the photo arrives — so the node changes during the
+   * component's life, and an effect would have to guess when. A callback
+   * ref is told, both times.
+   */
+  const ref = useCallback((node: HTMLElement | null) => {
+    observerRef.current?.disconnect();
+    observerRef.current = null;
+    if (!node || near || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        observer.disconnect();
+        setNear(true);
+      },
+      // Well before it is actually on screen, so the photo is there by
+      // the time the scroll reaches it.
+      { rootMargin: '600px 0px' },
+    );
+    observerRef.current = observer;
+    observer.observe(node);
+    // Re-made when `near` flips, which makes React detach the old one —
+    // and that detach is what stops the observer once the photo is due.
+  }, [near]);
+
+  useEffect(() => () => observerRef.current?.disconnect(), []);
 
   useEffect(() => {
-    if (direct || !mediaId) return;
+    if (direct || !mediaId || !near) return;
+
+    const key = `${mediaId}:${width}`;
+    if (peekMediaCache(key)) {
+      // Already downloaded — the render above is showing it. Nothing to
+      // fetch; just say it was wanted, so eviction takes something else.
+      touchMediaCache(key);
+      return;
+    }
 
     let cancelled = false;
-    let created: string | null = null;
 
     // No `setFailed(false)` here to clear a previous failure: every
     // caller is keyed on the message id, so a different photo is a
@@ -3585,12 +3738,12 @@ function useMediaObjectUrl(
     // on every image for a case that cannot happen.
     fetchMediaObjectUrl(token, mediaId, width)
       .then((objectUrl) => {
-        if (cancelled) {
-          URL.revokeObjectURL(objectUrl);
-          return;
-        }
-        created = objectUrl;
-        setUrl(objectUrl);
+        // Cached even when this component has gone: the bytes are already
+        // paid for, and the next bubble to want this photo should not pay
+        // again. Nothing is revoked here any more — the cache owns every
+        // URL it holds and releases them only when it evicts one.
+        writeMediaCache(key, objectUrl);
+        if (!cancelled) setUrl(objectUrl);
       })
       .catch(() => {
         if (!cancelled) setFailed(true);
@@ -3598,11 +3751,10 @@ function useMediaObjectUrl(
 
     return () => {
       cancelled = true;
-      if (created) URL.revokeObjectURL(created);
     };
-  }, [token, mediaId, direct, width]);
+  }, [token, mediaId, direct, width, near]);
 
-  return { url: direct ?? url, failed };
+  return { url: direct ?? url ?? cached ?? null, failed, ref };
 }
 
 function ChatImage({
@@ -3623,7 +3775,9 @@ function ChatImage({
   // a photo costs no second download. The demo's inline src and the
   // revoke-on-unmount both live in the hook — this used to be a second
   // copy of that logic, and two copies of a cleanup rule is one too many.
-  const { url, failed } = useMediaObjectUrl(token, { mediaId }, 960);
+  // lazy: this is the thread, where the window grows to hundreds of
+  // messages and most of their photos are nowhere near the screen.
+  const { url, failed, ref } = useMediaObjectUrl(token, { mediaId }, 960, true);
 
   if (failed) {
     return (
@@ -3640,15 +3794,27 @@ function ChatImage({
   }
 
   if (!url) {
-    return <div className={tile ? 'h-full w-full animate-pulse bg-black/10' : 'h-52 w-56 animate-pulse rounded-[6px] bg-black/10'} />;
+    // The ref lives on the placeholder as well as the image: this is the
+    // element the observer watches, and until it has been seen there is
+    // nothing else on the page to watch.
+    return (
+      <div
+        ref={ref}
+        className={tile ? 'h-full w-full animate-pulse bg-black/10' : 'h-52 w-56 animate-pulse rounded-[6px] bg-black/10'}
+      />
+    );
   }
 
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
+      ref={ref}
       src={url}
       alt="Shared image"
       onClick={onOpen}
+      loading="lazy"
+      decoding="async"
+
       className={
         tile
           ? 'h-full w-full cursor-zoom-in object-cover'
