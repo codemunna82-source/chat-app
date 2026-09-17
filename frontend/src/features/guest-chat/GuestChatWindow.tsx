@@ -58,6 +58,7 @@ import { SafetyRow } from './SafetyRow';
 import { NotifyBar } from './NotifyBar';
 import { enablePush, pushSupport, refreshPush, type PushSupport } from './pushClient';
 import { canRecordAudio, useVoiceRecorder } from './useVoiceRecorder';
+import { playMessageSound, playRingtone, playDialTone, stopTones, unlockAudioTones } from '@/utils/audioTones';
 import { DEMO_SESSION, demoMessages, demoReply, isDemoToken } from './demoChat';
 import { DeleteSheet } from './DeleteSheet';
 import { uploadVoiceNote } from './guestApi';
@@ -660,6 +661,42 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
   const loadIce = useCallback(() => fetchIceServers(token), [token]);
   const call = useGuestCall(socket, loadIce, { demo });
+
+  /**
+   * The phone noises: a ring while a call is coming in, a dial tone while
+   * one is going out, silence for everything else.
+   *
+   * Driven off the call's own phase rather than fired at the event, so
+   * there is one place that decides and no way for a tone to outlive the
+   * call that started it — a ringtone still going after the customer
+   * answers is worse than no ringtone at all. The cleanup stops it if the
+   * window closes mid-ring.
+   */
+  useEffect(() => {
+    if (call.phase === 'incoming') playRingtone();
+    else if (call.phase === 'calling') playDialTone();
+    else stopTones();
+    return () => stopTones();
+  }, [call.phase]);
+
+  /**
+   * Browsers keep audio silent until the person has touched the page, and
+   * a customer arriving from a WhatsApp link has touched nothing yet — so
+   * without this the FIRST message chime and the first ringtone are
+   * dropped, which is exactly the ones that matter.
+   *
+   * `once` on both, and passive: this only wakes the audio context and
+   * must never interfere with the tap it is riding on.
+   */
+  useEffect(() => {
+    const unlock = () => unlockAudioTones();
+    window.addEventListener('pointerdown', unlock, { once: true, passive: true });
+    window.addEventListener('keydown', unlock, { once: true });
+    return () => {
+      window.removeEventListener('pointerdown', unlock);
+      window.removeEventListener('keydown', unlock);
+    };
+  }, []);
   /**
    * The two <video> elements.
    *
@@ -1071,7 +1108,13 @@ export default function GuestChatWindow({ token }: { token: string }) {
 
       const incoming = realtimeToGuestMessage(payload);
       setMessages((prev) => mergeMessage(prev, incoming));
-      if (incoming.from === 'business') markRead(token);
+      if (incoming.from === 'business') {
+        markRead(token);
+        // Only the business's. This window echoes the customer's own
+        // messages back through the same event, and a chime for something
+        // they just typed themselves is noise.
+        playMessageSound();
+      }
       // A message means they finished typing, whether or not a stop event
       // arrives — and it always looks wrong to still say "typing" under a
       // message that has already landed.
