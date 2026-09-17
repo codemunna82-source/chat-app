@@ -1807,13 +1807,52 @@ export default function GuestChatWindow({ token }: { token: string }) {
     setErrorText(null);
     setAtBottom(true);
     setUploading((n) => n + 1);
+
+    /**
+     * On screen the instant the finger lifts, the way every messenger
+     * does it — and playable straight away, off the local blob.
+     *
+     * A voice note used to appear only once the upload had finished and
+     * the server had answered. On a phone connection that is several
+     * seconds of a thread with nothing in it, which reads as "the
+     * recording did not work" — so people record it again, and the
+     * business gets the same message twice.
+     */
+    const preview: ThreadMessage = {
+      id: `local-voice-${Date.now()}`,
+      from: 'me',
+      type: 'audio',
+      hasMedia: true,
+      createdAt: new Date().toISOString(),
+      pending: true,
+      localUrl: URL.createObjectURL(result.blob),
+      uploadProgress: 0,
+    };
+    setMessages((prev) => [...prev, preview]);
+
+    const dropPreview = () => {
+      if (preview.localUrl) URL.revokeObjectURL(preview.localUrl);
+      setMessages((prev) => prev.filter((m) => m.id !== preview.id));
+    };
+
     try {
-      const { sent, failed } = await uploadVoiceNote(token, result.blob, result.mimeType);
+      const { sent, failed } = await uploadVoiceNote(
+        token,
+        result.blob,
+        result.mimeType,
+        (fraction) => {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === preview.id ? { ...m, uploadProgress: fraction } : m)),
+          );
+        },
+      );
+      dropPreview();
       setMessages((prev) => sent.reduce(mergeMessage, prev));
       if (sent.length === 0) {
         setErrorText(failed[0]?.message ?? 'Voice message could not be sent.');
       }
     } catch (err) {
+      dropPreview();
       if (err instanceof GuestLinkInvalidError) setPhase('invalid');
       else setErrorText(err instanceof Error ? err.message : 'Voice message could not be sent.');
     } finally {
@@ -2289,7 +2328,9 @@ export default function GuestChatWindow({ token }: { token: string }) {
                 const revoked = Boolean(m.revokedAt);
                 const isImage =
                   !revoked && (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'image';
-                const isVoice = !revoked && Boolean(m.mediaId) && m.type === 'audio';
+                // localUrl as well as mediaId: the bubble for a recording
+                // still uploading has no id yet and must still render.
+                const isVoice = !revoked && (Boolean(m.mediaId) || Boolean(m.localUrl)) && m.type === 'audio';
                 // Only when the coordinates actually came through. A
                 // location message from before this field existed still has
                 // its text line, and rendering it as a pin at (0, 0) would
@@ -2444,7 +2485,12 @@ export default function GuestChatWindow({ token }: { token: string }) {
                             />
                           )
                         ) : isVoice ? (
-                          <VoiceBubble token={token} mediaId={m.mediaId!} mine={mine} />
+                          <VoiceBubble
+                            token={token}
+                            mediaId={m.mediaId}
+                            localUrl={m.localUrl}
+                            mine={mine}
+                          />
                         ) : place ? (
                           <LocationBubble place={place} mine={mine} />
                         ) : (

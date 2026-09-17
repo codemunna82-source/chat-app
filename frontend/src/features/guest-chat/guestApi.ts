@@ -378,11 +378,12 @@ export async function uploadVoiceNote(
   token: string,
   blob: Blob,
   mimeType: string,
+  onProgress?: (fraction: number) => void,
 ): Promise<UploadResult> {
   const base = mimeType.split(';')[0]!.trim();
   const extension = base.includes('mp4') ? 'm4a' : base.includes('ogg') ? 'ogg' : 'webm';
   const file = new File([blob], `voice-${Date.now()}.${extension}`, { type: mimeType });
-  return uploadImages(token, [file]);
+  return uploadImages(token, [file], onProgress);
 }
 
 /**

@@ -28,18 +28,30 @@ function clock(totalSeconds: number): string {
 export function VoiceBubble({
   token,
   mediaId,
+  /**
+   * The recording still going up, as a blob URL.
+   *
+   * Present only on the bubble shown the moment the customer lifts their
+   * finger, before the server has the bytes. It is the same audio, so the
+   * bubble is fully playable while it uploads — which is the point: a
+   * voice note that appears only after the round trip leaves the customer
+   * wondering whether it recorded at all.
+   */
+  localUrl,
   mine,
   /** Counted while recording — a WebM blob often reports Infinity for its own length. */
   fallbackSeconds,
 }: {
   token: string;
-  mediaId: string;
+  /** Absent while the recording is still uploading. */
+  mediaId?: string;
+  localUrl?: string;
   mine: boolean;
   fallbackSeconds?: number;
 }) {
-  // The demo passes a src the tag can already use; everything else has to
-  // come through the token-authenticated media route.
-  const direct = mediaId.startsWith('demo:') ? mediaId.slice('demo:'.length) : null;
+  // The local recording first, then the demo's ready-made src; everything
+  // else has to come through the token-authenticated media route.
+  const direct = localUrl ?? (mediaId?.startsWith('demo:') ? mediaId.slice('demo:'.length) : null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const [url, setUrl] = useState<string | null>(direct);
@@ -50,6 +62,9 @@ export function VoiceBubble({
   const [duration, setDuration] = useState(fallbackSeconds ?? 0);
   const createdUrlRef = useRef<string | null>(null);
 
+  // Only what this component created. `localUrl` is the sender's — it is
+  // revoked when the real message replaces that row, and releasing it here
+  // would break a bubble that is still on screen.
   useEffect(
     () => () => {
       if (createdUrlRef.current) URL.revokeObjectURL(createdUrlRef.current);
@@ -59,6 +74,10 @@ export function VoiceBubble({
 
   async function ensureLoaded(): Promise<string | null> {
     if (url) return url;
+    // Nothing to fetch and nothing local: the upload has not finished and
+    // there is no id yet. Silently doing nothing beats a spinner that
+    // never resolves.
+    if (!mediaId) return null;
     setLoading(true);
     try {
       const objectUrl = await fetchMediaObjectUrl(token, mediaId);
