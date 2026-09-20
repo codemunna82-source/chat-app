@@ -363,8 +363,15 @@ export interface TenantSettings extends BusinessProfile {
   guestLinkUrlPattern: string | null;
 }
 
-export function fetchTenantSettings(): Promise<TenantSettings> {
-  return request<TenantSettings>('/tenant/settings');
+/**
+ * `metaAppId` reads that Business Manager's own invitation config in the
+ * `autoGuestLink` field instead of the tenant-wide default — everything
+ * else in the response (name, avatar, guest domain, ...) is unaffected,
+ * since those stay tenant-wide. See tenant.model.ts's autoGuestLinkByApp.
+ */
+export function fetchTenantSettings(metaAppId?: string | null): Promise<TenantSettings> {
+  const query = metaAppId ? `?metaAppId=${encodeURIComponent(metaAppId)}` : '';
+  return request<TenantSettings>(`/tenant/settings${query}`);
 }
 
 /**
@@ -389,6 +396,8 @@ export function updateAutoGuestLink(input: {
   maxSends?: number;
   holdWhatsAppUntilOpened?: boolean;
   welcomeMessage?: string;
+  /** Saves that Business Manager's own config instead of the tenant-wide default. */
+  metaAppId?: string | null;
 }): Promise<AutoGuestLink> {
   return request<AutoGuestLink>('/tenant/settings/auto-guest-link', {
     method: 'PATCH',

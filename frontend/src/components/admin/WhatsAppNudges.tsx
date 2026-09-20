@@ -101,7 +101,7 @@ export function WhatsAppNudges() {
               maxLength={1024}
               disabled={saving}
               onChange={(e) => setDrafts(drafts.map((d, j) => (j === i ? e.target.value : d)))}
-              className="w-full rounded-2xl glass-input px-3 py-2.5 text-sm leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+              className="w-full rounded-2xl glass-input px-3 py-2.5 text-base leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
             />
             <span className="text-[12px] text-muted">{text.length} / 1024</span>
           </label>

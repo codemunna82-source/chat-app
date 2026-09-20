@@ -99,7 +99,13 @@ export function Modal({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="w-full max-w-2xl rounded-3xl border border-border bg-surface p-5 shadow-2xl sm:p-6"
+        // The panel scrolls itself rather than relying on the backdrop's
+        // scroll: on a phone, focusing a field low in a long form opens
+        // the keyboard and shrinks the visible viewport, and a panel with
+        // no height limit of its own can end up taller than what is left
+        // — the Save button (or the field itself) pushed out of reach
+        // with no way to tell the layout had a bottom at all.
+        className="flex max-h-[90vh] w-full max-w-2xl flex-col overflow-y-auto overscroll-contain rounded-3xl border border-border bg-surface p-5 shadow-2xl sm:p-6"
       >
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">

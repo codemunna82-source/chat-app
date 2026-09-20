@@ -3,7 +3,12 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { fetchTenantSettings, updateAutoGuestLink, type TenantSettings } from '@/lib/voxo';
+import {
+  fetchTenantSettings,
+  updateAutoGuestLink,
+  type TenantSettings,
+  type MetaAppSummary,
+} from '@/lib/voxo';
 
 /**
  * The automatic private-chat invitation.
@@ -23,7 +28,17 @@ import { fetchTenantSettings, updateAutoGuestLink, type TenantSettings } from '@
  * because the one detail that goes wrong — the {{1}} suffix on the button
  * URL — cannot be corrected after the template is submitted for review.
  */
-export function AutoReplySetup() {
+export function AutoReplySetup({ metaApps }: { metaApps: MetaAppSummary[] }) {
+  // '' is the tenant-wide default — the same slot this screen always
+  // wrote to before Business Managers existed here, which is why it stays
+  // the starting choice: a workspace that has never opened this picker
+  // sees exactly what it always saw. Any other value is a MetaApp's own
+  // id, and only ever offered when more than one BM actually exists —
+  // with just the server default, there is nowhere else a template could
+  // live, and a picker with one option is a step nobody needed.
+  const [selectedBm, setSelectedBm] = useState('');
+  const showBmPicker = metaApps.length > 1;
+
   const [settings, setSettings] = useState<TenantSettings | null>(null);
   const [mode, setMode] = useState<'text' | 'template'>('text');
   const [message, setMessage] = useState('');
@@ -38,8 +53,16 @@ export function AutoReplySetup() {
   const [notice, setNotice] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Re-fetched on every change of `selectedBm`, including the first: each
+  // Business Manager's invitation is a fully independent config, not a
+  // view over one shared record, so switching the picker has to reload
+  // everything below it rather than leave one BM's fields showing while
+  // Save would write another's.
   useEffect(() => {
-    void fetchTenantSettings()
+    setSettings(null);
+    setError(null);
+    setNotice(null);
+    void fetchTenantSettings(selectedBm || null)
       .then((s) => {
         setSettings(s);
         setMode(s.autoGuestLink.mode);
@@ -52,7 +75,7 @@ export function AutoReplySetup() {
         setWelcomeMessage(s.autoGuestLink.welcomeMessage);
       })
       .catch((err) => setError(err instanceof Error ? err.message : 'Could not load settings.'));
-  }, []);
+  }, [selectedBm]);
 
   async function save(enabled: boolean) {
     if (busy) return;
@@ -70,11 +93,12 @@ export function AutoReplySetup() {
         maxSends,
         holdWhatsAppUntilOpened: holdWhatsApp,
         welcomeMessage,
+        metaAppId: selectedBm || null,
       });
       // Re-read rather than merging the save response: `active` is only
       // computed on the settings read, so merging would leave the badge
       // showing a staleness the save just resolved.
-      setSettings(await fetchTenantSettings());
+      setSettings(await fetchTenantSettings(selectedBm || null));
       // Read the saved values back rather than leaving what was typed: the
       // server clamps maxSends and trims the greeting, so the form should
       // show what was actually stored, not what was submitted.
@@ -95,11 +119,36 @@ export function AutoReplySetup() {
     }
   }
 
+  const bmPicker = showBmPicker ? (
+    <label className="mt-4 flex flex-col gap-1.5 sm:max-w-sm">
+      <span className="text-xs font-semibold uppercase tracking-wide text-muted">
+        Business Manager
+      </span>
+      <select
+        id="auto-reply-bm"
+        value={selectedBm}
+        onChange={(e) => setSelectedBm(e.target.value)}
+        className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
+      >
+        {metaApps.map((app) => (
+          <option key={app.id ?? ''} value={app.id ?? ''}>
+            {app.name}
+          </option>
+        ))}
+      </select>
+      <span className="text-[12px] leading-snug text-muted">
+        A template lives on one Business Manager&rsquo;s WhatsApp account — Meta refuses it on any
+        other. Each one here has its own template, its own wording, its own on/off switch.
+      </span>
+    </label>
+  ) : null;
+
   if (!settings) {
     return (
       <section className="mt-8 rounded-3xl border border-border bg-surface/80 p-5 sm:p-6">
         <h2 className="font-display text-lg font-bold tracking-tight">Automatic chat invitation</h2>
-        <p className="mt-2 text-sm text-muted">{error ?? 'Loading…'}</p>
+        {bmPicker}
+        <p className="mt-4 text-sm text-muted">{error ?? 'Loading…'}</p>
       </section>
     );
   }
@@ -135,6 +184,8 @@ export function AutoReplySetup() {
           {onButtInert ? 'On · not sending' : enabled ? 'On' : 'Off'}
         </span>
       </div>
+
+      {bmPicker}
 
       <p className="mt-2 text-sm leading-relaxed text-muted">
         When a customer messages your WhatsApp number, VOXO replies straight away with a link to
@@ -245,7 +296,7 @@ export function AutoReplySetup() {
               onChange={(e) => setMessage(e.target.value)}
               rows={5}
               maxLength={900}
-              className="w-full rounded-2xl glass-input px-3 py-2.5 text-sm leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+              className="w-full rounded-2xl glass-input px-3 py-2.5 text-base leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
             />
             <span className="text-[12px] leading-snug text-muted">
               <span className="font-mono">{'{{link}}'}</span> becomes that customer&rsquo;s own
@@ -364,7 +415,7 @@ export function AutoReplySetup() {
                 id="auto-reply-body-var"
                 value={bodyVariable}
                 onChange={(e) => setBodyVariable(e.target.value as 'none' | 'customer_name')}
-                className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
               >
                 <option value="none">No &mdash; the body is plain text</option>
                 <option value="customer_name">Yes &mdash; {'{{1}}'} is the customer&rsquo;s name</option>
@@ -392,7 +443,7 @@ export function AutoReplySetup() {
             id="auto-reply-max-sends"
             value={maxSends}
             onChange={(e) => setMaxSends(Number(e.target.value))}
-            className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+            className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
           >
             <option value={1}>Once per customer</option>
             <option value={2}>Twice — again if they write without opening it</option>
@@ -442,7 +493,7 @@ export function AutoReplySetup() {
             rows={2}
             maxLength={900}
             placeholder="Hello, welcome! How can we help?"
-            className="w-full rounded-2xl glass-input px-3 py-2.5 text-sm leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+            className="w-full rounded-2xl glass-input px-3 py-2.5 text-base leading-relaxed text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
           />
           <span className="text-[12px] leading-snug text-muted">
             Posted into the chat the first time they write from the window. Your agents see it too,

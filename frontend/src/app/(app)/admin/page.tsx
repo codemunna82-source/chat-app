@@ -258,7 +258,7 @@ export default function AdminPage() {
             title="Automatic replies"
             description="What VOXO sends on its own when a customer messages, without waiting for an agent."
           >
-            <SectionBoundary><AutoReplySetup /></SectionBoundary>
+            <SectionBoundary><AutoReplySetup metaApps={metaApps} /></SectionBoundary>
           </Section>
 
           {/* Immediately after the automatic reply, because that is the
@@ -329,6 +329,7 @@ export default function AdminPage() {
         <MemberForm
           member={editing}
           numbers={numbers}
+          metaApps={metaApps}
           onClose={() => {
             setInviting(false);
             setEditing(null);

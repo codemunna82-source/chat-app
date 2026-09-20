@@ -308,7 +308,7 @@ export function NumberSetup({
                       <select
                         value={moveTarget}
                         onChange={(e) => setMoveTarget(e.target.value)}
-                        className="h-11 w-full rounded-xl glass-input px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+                        className="h-11 w-full rounded-xl glass-input px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
                       >
                         <option value="">The server&rsquo;s default configuration</option>
                         {metaApps
@@ -467,7 +467,7 @@ export function NumberSetup({
               id="wa-meta-app"
               value={metaAppId}
               onChange={(e) => setMetaAppId(e.target.value)}
-              className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35"
+              className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
             >
               <option value="">The server&rsquo;s default configuration</option>
               {metaApps
