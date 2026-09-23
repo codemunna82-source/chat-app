@@ -318,6 +318,34 @@ export function disableMember(id: string): Promise<unknown> {
 
 /* ── Workspace settings ───────────────────────────────────────────── */
 
+export interface AutoGuestLink {
+  enabled: boolean;
+  /**
+   * Whether anything will actually be sent.
+   *
+   * Not the same as `enabled`: a workspace switched on before it named a
+   * template has enabled true and nothing to send. Only present on the
+   * settings read — a save returns what was stored.
+   */
+  active?: boolean;
+  /** How the invitation is sent. 'text' needs nothing from Meta. */
+  mode: 'text' | 'template';
+  /** The wording sent in text mode. {{link}} becomes the customer's own URL. */
+  message: string;
+  /** The approved WhatsApp template's name, as it appears in WhatsApp Manager. */
+  templateName: string;
+  /** Meta's language code for the approved copy, e.g. "en" or "en_US". */
+  templateLanguage: string;
+  /** What fills the template body's {{1}}, when it has one. */
+  bodyVariable: 'none' | 'customer_name';
+  /** How many times one customer may be sent the invitation. 1–3. */
+  maxSends: number;
+  /** Keep a customer's WhatsApp messages out of the inbox until they open the window. */
+  holdWhatsAppUntilOpened: boolean;
+  /** Posted into the chat the first time the customer writes from the window. */
+  welcomeMessage: string;
+}
+
 /** Where the name a customer sees in the web chat window came from. */
 export type BusinessNameSource = 'settings' | 'whatsapp' | 'workspace' | 'fallback';
 
@@ -334,14 +362,22 @@ export interface BusinessProfile {
 export interface TenantSettings extends BusinessProfile {
   /** The workspace's internal label. Staff-facing only. */
   name: string;
+  autoGuestLink: AutoGuestLink;
   /** False means the server has no GUEST_LINK_BASE_URL, so there is no link to send. */
   guestLinkConfigured: boolean;
   /** The exact URL to paste into the template's button in WhatsApp Manager. */
   guestLinkUrlPattern: string | null;
 }
 
-export function fetchTenantSettings(): Promise<TenantSettings> {
-  return request<TenantSettings>('/tenant/settings');
+/**
+ * `metaAppId` reads that Business Manager's own invitation config in the
+ * `autoGuestLink` field instead of the tenant-wide default — everything
+ * else in the response (name, avatar, guest domain, ...) is unaffected,
+ * since those stay tenant-wide. See tenant.model.ts's autoGuestLinkByApp.
+ */
+export function fetchTenantSettings(metaAppId?: string | null): Promise<TenantSettings> {
+  const query = metaAppId ? `?metaAppId=${encodeURIComponent(metaAppId)}` : '';
+  return request<TenantSettings>(`/tenant/settings${query}`);
 }
 
 /**
@@ -351,6 +387,25 @@ export function fetchTenantSettings(): Promise<TenantSettings> {
  */
 export function updateBusinessProfile(input: { displayName: string }): Promise<BusinessProfile> {
   return request<BusinessProfile>('/tenant/settings/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(input),
+  });
+}
+
+export function updateAutoGuestLink(input: {
+  enabled: boolean;
+  mode?: 'text' | 'template';
+  message?: string;
+  templateName?: string;
+  templateLanguage?: string;
+  bodyVariable?: 'none' | 'customer_name';
+  maxSends?: number;
+  holdWhatsAppUntilOpened?: boolean;
+  welcomeMessage?: string;
+  /** Saves that Business Manager's own config instead of the tenant-wide default. */
+  metaAppId?: string | null;
+}): Promise<AutoGuestLink> {
+  return request<AutoGuestLink>('/tenant/settings/auto-guest-link', {
     method: 'PATCH',
     body: JSON.stringify(input),
   });
