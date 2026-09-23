@@ -315,6 +315,20 @@ export function NumberSetup({
                     </span>
                   </p>
                   <p className="mt-0.5 truncate font-mono text-[12.5px] text-muted">{n.phoneNumberId}</p>
+                  {/* The number itself can read CONNECTED while the
+                      Business Manager's own access token behind it is
+                      dead — Meta rejects every send with no other signal
+                      anywhere in this app. This is the one place that
+                      failure becomes visible before an agent finds out
+                      from a customer who never got a reply. */}
+                  {n.accountStatus && n.accountStatus !== 'CONNECTED' ? (
+                    <p className="mt-1 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12.5px] font-medium leading-snug text-rose-600 dark:text-rose-400">
+                      This number&rsquo;s Business Manager connection is {n.accountStatus.toLowerCase()} —
+                      nothing can be sent from it until it is reconnected. Generate a fresh access
+                      token for its Business Manager in Meta Business Suite, then update it under
+                      Business Managers below.
+                    </p>
+                  ) : null}
                   {/* Said in words as well as by the switch: "never read
                       from Meta" is not the same as "off", and an admin
                       asking why a call has not arrived deserves to be

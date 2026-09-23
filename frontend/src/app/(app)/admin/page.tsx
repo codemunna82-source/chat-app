@@ -26,6 +26,22 @@ import { SectionBoundary } from '@/components/admin/SectionBoundary';
 import { Modal } from '@/components/ui/modal';
 import { WhatsAppNudges } from '@/components/admin/WhatsAppNudges';
 
+type AdminTab = 'business-managers' | 'numbers' | 'profile' | 'auto-replies' | 'nudges' | 'team';
+
+/**
+ * The admin-only tabs, in the order a workspace is actually set up: a
+ * number cannot be added before the Business Manager whose token verifies
+ * it, and automatic replies need a number to fire from.
+ */
+const ADMIN_TABS: { id: AdminTab; label: string }[] = [
+  { id: 'business-managers', label: 'Business Managers' },
+  { id: 'numbers', label: 'Numbers' },
+  { id: 'profile', label: 'Business profile' },
+  { id: 'auto-replies', label: 'Automatic replies' },
+  { id: 'nudges', label: 'WhatsApp nudges' },
+  { id: 'team', label: 'Team' },
+];
+
 /**
  * User management, on the web.
  *
@@ -60,6 +76,9 @@ export default function AdminPage() {
   // offers it immediately rather than after a page reload — adding a BM and
   // then adding a number to it is one continuous task.
   const [metaAppsVersion, setMetaAppsVersion] = useState(0);
+  // Business Managers first: nothing else on this page works without one,
+  // and it is the first thing the setup order above says to do.
+  const [activeTab, setActiveTab] = useState<AdminTab>('business-managers');
 
   useEffect(() => {
     if (!session) return;
@@ -224,90 +243,113 @@ export default function AdminPage() {
       ) : null}
 
       {isAdmin ? (
-        <>
-          {/* Ordered the way a workspace is actually set up, and the order
-              matters: a number cannot be added before the Business Manager
-              whose token verifies it, and a user cannot be assigned a
-              number that does not exist yet. */}
+        <div className="mt-8 flex gap-1 overflow-x-auto border-b border-border" role="tablist">
+          {ADMIN_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              onClick={() => setActiveTab(tab.id)}
+              className={`shrink-0 whitespace-nowrap border-b-2 px-4 py-2.5 text-[13.5px] font-semibold transition ${
+                activeTab === tab.id
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted hover:text-foreground'
+              }`}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <div className="mt-8">
+        {/* Ordered the way a workspace is actually set up, and the order
+            matters: a number cannot be added before the Business Manager
+            whose token verifies it, and a user cannot be assigned a
+            number that does not exist yet. Each tab keeps its own place
+            in the DOM rather than unmounting — a form half-filled in on
+            one tab must still be there when an admin comes back to it. */}
+        <div className={isAdmin && activeTab === 'business-managers' ? '' : 'hidden'}>
           <Section
-            step={1}
-            title="WhatsApp credentials"
+            title="Business Managers"
             description="Your Meta apps. Each Business Manager has its own app secret, access token and webhook URL — none of them are interchangeable."
           >
             <SectionBoundary><BusinessManagers onChanged={() => setMetaAppsVersion((v) => v + 1)} /></SectionBoundary>
           </Section>
+        </div>
 
+        <div className={isAdmin && activeTab === 'numbers' ? '' : 'hidden'}>
           <Section
-            step={2}
             title="WhatsApp numbers"
             description="The numbers customers message. Each belongs to one Business Manager — the one whose credentials can send and receive on it."
           >
             <SectionBoundary><NumberSetup numbers={numbers} metaApps={metaApps} onChanged={load} /></SectionBoundary>
           </Section>
+        </div>
 
+        <div className={isAdmin && activeTab === 'profile' ? '' : 'hidden'}>
           <Section
-            step={3}
             title="Business profile"
             description="The name your customers see when they open the private chat window you send them."
           >
             <SectionBoundary><BusinessProfile /></SectionBoundary>
           </Section>
+        </div>
 
+        <div className={isAdmin && activeTab === 'auto-replies' ? '' : 'hidden'}>
           <Section
-            step={4}
             title="Automatic replies"
             description="What VOXO sends on its own when a customer messages, without waiting for an agent."
           >
             <SectionBoundary><AutoReplySetup metaApps={metaApps} /></SectionBoundary>
           </Section>
+        </div>
 
-          {/* Immediately after the automatic reply, because that is the
-              order a customer experiences them: the approved template
-              with the link goes first, and these are what an agent may
-              follow it with. */}
+        <div className={isAdmin && activeTab === 'nudges' ? '' : 'hidden'}>
           <Section
-            step={5}
             title="WhatsApp messages before the private chat"
             description="The only wording an agent may send over WhatsApp until the customer opens their link — and, since the list length is the allowance, how many times."
           >
             <SectionBoundary><WhatsAppNudges /></SectionBoundary>
           </Section>
-        </>
-      ) : null}
-
-      <Section
-        step={isAdmin ? 6 : 1}
-        title="Team"
-        description="Who can sign in, what they can do, and which number's chats they see."
-      >
-        <div className="mt-6">
-        {members === null ? (
-          <p className="text-sm text-muted">Loading…</p>
-        ) : sorted.length === 0 ? (
-          <p className="rounded-2xl border border-border bg-surface/70 px-5 py-6 text-sm text-muted">
-            No users yet. Add the first one with the button above — the phone number you give them is
-            what they will sign in with.
-          </p>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {sorted.map((member) => (
-              <MemberRow
-                key={member.id}
-                member={member}
-                numbers={numbers}
-                canEdit={isAdmin}
-                isSelf={member.id === session.user.id}
-                onEdit={() => {
-                  setInviting(false);
-                  setEditing(member);
-                }}
-                onToggleDisabled={() => void handleDisable(member)}
-              />
-            ))}
-          </ul>
-        )}
         </div>
-      </Section>
+
+        <div className={!isAdmin || activeTab === 'team' ? '' : 'hidden'}>
+          <Section
+            title="Team"
+            description="Who can sign in, what they can do, and which number's chats they see."
+          >
+            <div className="mt-6">
+            {members === null ? (
+              <p className="text-sm text-muted">Loading…</p>
+            ) : sorted.length === 0 ? (
+              <p className="rounded-2xl border border-border bg-surface/70 px-5 py-6 text-sm text-muted">
+                No users yet. Add the first one with the button above — the phone number you give them is
+                what they will sign in with.
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-2">
+                {sorted.map((member) => (
+                  <MemberRow
+                    key={member.id}
+                    member={member}
+                    numbers={numbers}
+                    canEdit={isAdmin}
+                    isSelf={member.id === session.user.id}
+                    onEdit={() => {
+                      setInviting(false);
+                      setEditing(member);
+                    }}
+                    onToggleDisabled={() => void handleDisable(member)}
+                  />
+                ))}
+              </ul>
+            )}
+            </div>
+          </Section>
+        </div>
+      </div>
 
       {/* In a dialog rather than inline, because "Add user" lives in the
           page header and this section is the LAST of five. Opened inline,

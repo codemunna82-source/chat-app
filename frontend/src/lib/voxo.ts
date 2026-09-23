@@ -90,6 +90,16 @@ export interface WhatsAppNumber {
    * here — only its existence and age.
    */
   linkApiKeyCreatedAt?: string | null;
+  /**
+   * Whether this number's Business Manager connection is actually usable —
+   * CONNECTED, PENDING, DISCONNECTED, ERROR or EXPIRED. Distinct from
+   * `status` above: that is Meta's verdict on the number itself, this is
+   * whether the access token behind it still works. A number can read
+   * CONNECTED here and still fail every send if its account's token was
+   * revoked or expired — this is what makes that visible before an agent
+   * finds out from a customer who never got a reply.
+   */
+  accountStatus?: string;
 }
 
 /**
