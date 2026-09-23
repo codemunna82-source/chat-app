@@ -63,6 +63,16 @@ export function NumberSetup({
   const [issuedKey, setIssuedKey] = useState<(LinkApiKeyIssued & { numberId: string }) | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // No "server default" choice in either Business Manager picker below —
+  // every number must name a real one. So the pickers need a real value
+  // selected from the moment they have anything to select, rather than
+  // defaulting to an option that no longer exists.
+  useEffect(() => {
+    if (metaAppId) return;
+    const first = metaApps.find((a) => a.status === 'ACTIVE');
+    if (first) setMetaAppId(first.id);
+  }, [metaApps, metaAppId]);
+
   // Read once, before the form is used rather than after it fails: "Meta
   // refused the registration" is a dead end when the real answer is that
   // nobody set the PIN.
@@ -357,13 +367,15 @@ export function NumberSetup({
                       receives, and it was the one thing about a number
                       this page never showed. */}
                   <p className="mt-1 text-[12.5px] text-muted">
-                    Business Manager: <span className="text-foreground">{n.metaAppName ?? 'Server default'}</span>
+                    Business Manager: <span className="text-foreground">{n.metaAppName ?? 'Not set'}</span>
                     {metaApps.length > 0 ? (
                       <button
                         type="button"
                         onClick={() => {
                           setMovingId(movingId === n.id ? null : n.id);
-                          setMoveTarget(n.metaAppId ?? '');
+                          setMoveTarget(
+                            n.metaAppId ?? metaApps.find((a) => a.status === 'ACTIVE')?.id ?? '',
+                          );
                         }}
                         className="ml-2 font-semibold text-accent underline-offset-2 hover:underline"
                       >
@@ -379,7 +391,6 @@ export function NumberSetup({
                         onChange={(e) => setMoveTarget(e.target.value)}
                         className="h-11 w-full rounded-xl glass-input px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
                       >
-                        <option value="">The server&rsquo;s default configuration</option>
                         {metaApps
                           .filter((a) => a.status === 'ACTIVE')
                           .map((a) => (
@@ -608,7 +619,6 @@ export function NumberSetup({
               onChange={(e) => setMetaAppId(e.target.value)}
               className="h-12 min-h-[44px] w-full rounded-2xl glass-input px-3 text-base text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 sm:text-sm"
             >
-              <option value="">The server&rsquo;s default configuration</option>
               {metaApps
                 .filter((a) => a.status === 'ACTIVE')
                 .map((a) => (
