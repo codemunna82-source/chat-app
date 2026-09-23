@@ -84,6 +84,12 @@ export interface WhatsAppNumber {
   /** Which Business Manager this number answers on; null is the server default. */
   metaAppId?: string | null;
   metaAppName?: string | null;
+  /**
+   * When the current public guest-link API key was generated, or null/absent
+   * if this number has never had one. The key itself is never reported
+   * here — only its existence and age.
+   */
+  linkApiKeyCreatedAt?: string | null;
 }
 
 /**
@@ -521,4 +527,29 @@ export function registerNumberForCloudApi(
     `/whatsapp/numbers/${id}/register`,
     { method: 'POST' },
   );
+}
+
+/**
+ * The key an external automation (WhatsApp Flows, a BSP chatbot) presents
+ * to fetch a private-chat link for this number's customers by phone
+ * number — see backend guestLinkApi.routes.ts. Reported exactly once,
+ * here — no later read of this number ever includes it again.
+ */
+export interface LinkApiKeyIssued {
+  key: string;
+  createdAt: string;
+  /** The full URL to POST to — paste straight into the automation's HTTP-request step. */
+  endpoint: string;
+}
+
+export function generateLinkApiKey(numberId: string): Promise<LinkApiKeyIssued> {
+  return request<LinkApiKeyIssued>(`/whatsapp/numbers/${encodeURIComponent(numberId)}/link-api-key`, {
+    method: 'POST',
+  });
+}
+
+export function revokeLinkApiKey(numberId: string): Promise<{ revoked: boolean }> {
+  return request<{ revoked: boolean }>(`/whatsapp/numbers/${encodeURIComponent(numberId)}/link-api-key`, {
+    method: 'DELETE',
+  });
 }

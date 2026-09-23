@@ -10,9 +10,12 @@ import {
   registerNumberForCloudApi,
   setNumberEnabled,
   setNumberCalling,
+  generateLinkApiKey,
+  revokeLinkApiKey,
   type MetaConfigHealth,
   type MetaAppSummary,
   type WhatsAppNumber,
+  type LinkApiKeyIssued,
 } from '@/lib/voxo';
 
 /**
@@ -55,6 +58,10 @@ export function NumberSetup({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [config, setConfig] = useState<MetaConfigHealth | null>(null);
+  const [keyBusy, setKeyBusy] = useState<string | null>(null);
+  /** The plaintext key just issued — shown once, then gone even from state. */
+  const [issuedKey, setIssuedKey] = useState<(LinkApiKeyIssued & { numberId: string }) | null>(null);
+  const [copied, setCopied] = useState(false);
 
   // Read once, before the form is used rather than after it fails: "Meta
   // refused the registration" is a dead end when the real answer is that
@@ -194,6 +201,54 @@ export function NumberSetup({
       setError(err instanceof Error ? err.message : 'Could not move that number.');
     } finally {
       setMoveBusy(false);
+    }
+  }
+
+  /**
+   * Generates (or replaces) this number's integration key, for an
+   * external automation — WhatsApp Flows, a BSP chatbot — that needs a
+   * fresh private-chat link per customer rather than a static one that
+   * only ever works for whichever customer it was originally minted for.
+   */
+  async function handleGenerateKey(id: string) {
+    setKeyBusy(id);
+    setError(null);
+    setNotice(null);
+    setCopied(false);
+    try {
+      const issued = await generateLinkApiKey(id);
+      setIssuedKey({ ...issued, numberId: id });
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not generate a key for that number.');
+    } finally {
+      setKeyBusy(null);
+    }
+  }
+
+  async function handleRevokeKey(id: string, label: string) {
+    setKeyBusy(id);
+    setError(null);
+    setNotice(null);
+    try {
+      await revokeLinkApiKey(id);
+      if (issuedKey?.numberId === id) setIssuedKey(null);
+      setNotice(`${label}: integration key revoked. Any automation still using it will stop working.`);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not revoke that key.');
+    } finally {
+      setKeyBusy(null);
+    }
+  }
+
+  async function handleCopyKey(key: string) {
+    try {
+      await navigator.clipboard.writeText(key);
+      setCopied(true);
+    } catch {
+      // Clipboard access can be denied (permissions, non-HTTPS in some
+      // browsers); the key is still selectable text in the box either way.
     }
   }
 
@@ -342,6 +397,76 @@ export function NumberSetup({
                       </div>
                     </div>
                   ) : null}
+
+                  {/* For an automation outside VOXO — WhatsApp Flows, a
+                      BSP chatbot — that sends the private-chat invitation
+                      instead of VOXO's own code. It cannot get a working
+                      link any other way: the token is unique per customer
+                      and only this server can mint one, so a static link
+                      pasted into it works once and then shows "expired"
+                      for everyone after. */}
+                  <div className="mt-2 rounded-2xl border border-border bg-surface/70 p-3">
+                    <p className="text-[12.5px] font-semibold text-foreground">
+                      Automation integration
+                    </p>
+                    {issuedKey?.numberId === n.id ? (
+                      <div className="mt-1.5 flex flex-col gap-2">
+                        <p className="text-[12px] leading-snug text-amber-600 dark:text-amber-400">
+                          Shown once — copy it now. It will not be shown again.
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <code className="min-w-0 flex-1 overflow-x-auto rounded-xl border border-border bg-surface px-3 py-2 text-[12px] whitespace-nowrap">
+                            {issuedKey.key}
+                          </code>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-9 min-h-9 shrink-0 px-3 text-[13px]"
+                            onClick={() => void handleCopyKey(issuedKey.key)}
+                          >
+                            {copied ? 'Copied' : 'Copy'}
+                          </Button>
+                        </div>
+                        <p className="text-[12px] leading-snug text-muted">
+                          POST to <code className="break-all">{issuedKey.endpoint}</code> with header{' '}
+                          <code>X-VOXO-Link-Key</code> set to this key, and JSON body{' '}
+                          <code>{'{ "phone": "+91XXXXXXXXXX" }'}</code> — the response&rsquo;s{' '}
+                          <code>data.url</code> is that customer&rsquo;s private-chat link.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="mt-1 text-[12.5px] text-muted">
+                        {n.linkApiKeyCreatedAt
+                          ? `Key generated ${new Date(n.linkApiKeyCreatedAt).toLocaleDateString()}.`
+                          : 'No key yet — needed only if an outside automation sends the invitation.'}
+                      </p>
+                    )}
+                    <div className="mt-2 flex flex-wrap items-center gap-3">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 min-h-9 px-3 text-[13px]"
+                        disabled={keyBusy !== null}
+                        onClick={() => void handleGenerateKey(n.id)}
+                      >
+                        {keyBusy === n.id
+                          ? 'Generating…'
+                          : n.linkApiKeyCreatedAt
+                            ? 'Generate a new key'
+                            : 'Generate key'}
+                      </Button>
+                      {n.linkApiKeyCreatedAt ? (
+                        <button
+                          type="button"
+                          disabled={keyBusy !== null}
+                          onClick={() => void handleRevokeKey(n.id, n.displayPhoneNumber)}
+                          className="text-[13px] font-semibold text-rose-500 hover:text-rose-600 disabled:opacity-50"
+                        >
+                          Revoke
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
                 </div>
                 <div className="flex w-full flex-col gap-2 sm:w-auto sm:shrink-0 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
                   {/* WhatsApp voice calling, at Meta. Off by default on
