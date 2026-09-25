@@ -19,6 +19,56 @@ import {
 } from '@/lib/voxo';
 
 /**
+ * What one of Meta's own phone-number statuses means for the person
+ * reading it, and how urgently.
+ *
+ * Only the values worth a specific message get one; an unlisted status
+ * (Meta adds these over time) still shows as a red or amber flag with its
+ * raw word rather than being silently dropped — an unrecognised status is
+ * still a status.
+ */
+function metaStatusMeaning(metaStatus: string): { tone: 'critical' | 'warn'; detail: string } | null {
+  switch (metaStatus.toUpperCase()) {
+    case 'CONNECTED':
+    case 'VERIFIED':
+    case 'APPROVED':
+      return null;
+    case 'BANNED':
+      return {
+        tone: 'critical',
+        detail:
+          'Meta has banned this number. Nothing can send or receive on it until Meta lifts the ban — open WhatsApp Manager for the reason, and appeal there if one is offered.',
+      };
+    case 'RESTRICTED':
+      return {
+        tone: 'critical',
+        detail:
+          'Meta has restricted this number — sending is capped or blocked. Usually a policy or quality violation; check WhatsApp Manager for the specific reason.',
+      };
+    case 'FLAGGED':
+      return {
+        tone: 'warn',
+        detail:
+          'Meta has flagged this number over message quality. It still sends, but is one step from being restricted — stop any outreach that was not asked for.',
+      };
+    case 'RATE_LIMITED':
+      return {
+        tone: 'warn',
+        detail:
+          'Meta is rate-limiting this number for sending too fast for its current tier. Sends will queue or fail until the rate drops.',
+      };
+    case 'DISCONNECTED':
+      return {
+        tone: 'critical',
+        detail:
+          'Meta reports this number as disconnected on its own side. Re-register it below, or check WhatsApp Manager for why Meta dropped the connection.',
+      };
+    default:
+      return null;
+  }
+}
+
+/**
  * Connecting a WhatsApp number to the workspace, in the two steps Meta
  * actually requires.
  *
@@ -306,6 +356,13 @@ export function NumberSetup({
             // off — so the switch shows unchecked but the row says the
             // status is unknown rather than asserting one.
             const callingOn = n.callingStatus === 'ENABLED';
+            // Meta's own verdict on the number, read back on every health
+            // refresh — the one place a ban or restriction that happened
+            // after registration actually shows up. Takes over the top
+            // badge when it is bad news: a number this app thinks is
+            // "connected" but Meta has banned is not connected in any
+            // sense an admin cares about.
+            const metaFlag = n.metaStatus ? metaStatusMeaning(n.metaStatus) : null;
             return (
               <li
                 key={n.id}
@@ -316,15 +373,34 @@ export function NumberSetup({
                     <span className="truncate">{n.displayPhoneNumber}</span>
                     <span
                       className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${
-                        pending
-                          ? 'bg-amber-500/14 text-amber-600 dark:text-amber-400'
-                          : 'bg-emerald-500/14 text-emerald-600 dark:text-emerald-400'
+                        metaFlag?.tone === 'critical'
+                          ? 'bg-rose-500/14 text-rose-600 dark:text-rose-400'
+                          : pending || metaFlag?.tone === 'warn'
+                            ? 'bg-amber-500/14 text-amber-600 dark:text-amber-400'
+                            : 'bg-emerald-500/14 text-emerald-600 dark:text-emerald-400'
                       }`}
                     >
-                      {pending ? n.status.toLowerCase() : 'connected'}
+                      {metaFlag ? n.metaStatus!.toLowerCase() : pending ? n.status.toLowerCase() : 'connected'}
                     </span>
                   </p>
                   <p className="mt-0.5 truncate font-mono text-[12.5px] text-muted">{n.phoneNumberId}</p>
+                  {/* Meta's own verdict on the number — separate from
+                      everything else on this row, because a number can be
+                      fully registered (status: CONNECTED above) and still
+                      be banned, restricted or flagged at Meta right now.
+                      This is the one place that becomes visible instead of
+                      only showing up as sends failing with no explanation. */}
+                  {metaFlag ? (
+                    <p
+                      className={`mt-1 rounded-xl border px-3 py-2 text-[12.5px] font-medium leading-snug ${
+                        metaFlag.tone === 'critical'
+                          ? 'border-rose-500/30 bg-rose-500/10 text-rose-600 dark:text-rose-400'
+                          : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-400'
+                      }`}
+                    >
+                      {metaFlag.detail}
+                    </p>
+                  ) : null}
                   {/* The number itself can read CONNECTED while the
                       Business Manager's own access token behind it is
                       dead — Meta rejects every send with no other signal

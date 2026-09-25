@@ -37,6 +37,25 @@ import {
  * admin nothing they cannot get from this word, and invites them to think
  * the real value is one click away.
  */
+/**
+ * What Meta's real verdict on this Business Manager means, in words —
+ * worst-case across every WhatsApp account it holds. Null for CONNECTED,
+ * PENDING (still connecting, not yet broken) or when it holds no accounts
+ * at all: there is nothing wrong to say in either case.
+ */
+function accountStatusWarning(accountStatus: string | null | undefined): string | null {
+  switch (accountStatus) {
+    case 'EXPIRED':
+      return 'Meta connection expired — nothing under this Business Manager can send until a fresh access token is saved below.';
+    case 'ERROR':
+      return 'Meta rejected this Business Manager’s last connection attempt — check the access token below, and that its System User still has the WhatsApp account assigned in Meta Business Suite.';
+    case 'DISCONNECTED':
+      return 'Meta reports this Business Manager as disconnected — nothing under it can send right now.';
+    default:
+      return null;
+  }
+}
+
 function CredentialState({ set }: { set: boolean }) {
   return set ? (
     <span className="font-semibold text-emerald-600 dark:text-emerald-400">Saved</span>
@@ -318,6 +337,15 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
                     </span>{' '}
                     on this Business Manager
                   </p>
+                  {/* Meta's real, current verdict — not the ACTIVE/DISABLED
+                      pill above, which is only this admin's own local
+                      switch and says nothing about whether Meta will
+                      actually accept a send right now. */}
+                  {accountStatusWarning(a.accountStatus) ? (
+                    <p className="mt-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12.5px] font-medium leading-snug text-rose-600 dark:text-rose-400">
+                      {accountStatusWarning(a.accountStatus)}
+                    </p>
+                  ) : null}
                 </div>
 
                 <Button

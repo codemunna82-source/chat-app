@@ -100,6 +100,16 @@ export interface WhatsAppNumber {
    * finds out from a customer who never got a reply.
    */
   accountStatus?: string;
+  /**
+   * Meta's own live verdict on the number — CONNECTED, FLAGGED, RESTRICTED,
+   * BANNED, RATE_LIMITED, or whatever else Meta reports — read back on
+   * every health refresh. Undefined until the first one runs. This is
+   * distinct from `status` above, which is this app's own registration
+   * bookkeeping and, once CONNECTED, never moves again on its own: a
+   * number can read `status: "CONNECTED"` here and still be banned at
+   * Meta, and this field is the only place that becomes visible.
+   */
+  metaStatus?: string;
 }
 
 /**
@@ -441,6 +451,14 @@ export interface MetaAppSummary {
   hasAccessToken: boolean;
   /** How many WhatsApp numbers sit under this Business Manager. */
   numberCount: number;
+  /**
+   * Meta's real, current verdict on whether anything can send from this
+   * Business Manager right now — CONNECTED, PENDING, DISCONNECTED, ERROR
+   * or EXPIRED, worst-case across every WhatsApp account it holds. Null
+   * when it holds none. Distinct from `status` above, which is only ever
+   * ACTIVE/DISABLED and is an admin's own local switch, not Meta's word.
+   */
+  accountStatus?: string | null;
   /** True for the environment row, which is shown but not editable. */
   isDefault: boolean;
   createdAt: string | null;
