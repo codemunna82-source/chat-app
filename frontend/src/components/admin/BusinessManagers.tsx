@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import {
   createMetaApp,
   listMetaApps,
+  retryMetaAppConnection,
   rotateMetaAppVerifyToken,
   updateMetaApp,
   type MetaAppCreated,
@@ -106,6 +107,7 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
   const [created, setCreated] = useState<MetaAppCreated | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
+  const [retrying, setRetrying] = useState<string | null>(null);
   /** Which app's credentials are being edited, if any. */
   const [editing, setEditing] = useState<string | null>(null);
   const [editToken, setEditToken] = useState('');
@@ -158,6 +160,31 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
       setError(err instanceof Error ? err.message : 'Could not generate a new verify token.');
     } finally {
       setRotating(null);
+    }
+  }
+
+  /**
+   * Retries with the access token already saved — for when the fix
+   * happened entirely on Meta's side (a System User asset assignment, a
+   * connected app revoked) and the stored token itself never needed to
+   * change. Without this the only way to clear EXPIRED was to paste the
+   * same token back into "Replace credentials", which reads as pointless
+   * when nothing about the token actually changed.
+   */
+  async function handleRetryConnection(id: string) {
+    setRetrying(id);
+    setError(null);
+    try {
+      const result = await retryMetaAppConnection(id);
+      await load();
+      await onChanged?.();
+      if (result.reconnectedAccounts === 0) {
+        setError('Nothing here was marked expired — there was nothing to retry.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not retry the connection.');
+    } finally {
+      setRetrying(null);
     }
   }
 
@@ -342,9 +369,23 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
                       switch and says nothing about whether Meta will
                       actually accept a send right now. */}
                   {accountStatusWarning(a.accountStatus) ? (
-                    <p className="mt-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-[12.5px] font-medium leading-snug text-rose-600 dark:text-rose-400">
-                      {accountStatusWarning(a.accountStatus)}
-                    </p>
+                    <div className="mt-1.5 rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2">
+                      <p className="text-[12.5px] font-medium leading-snug text-rose-600 dark:text-rose-400">
+                        {accountStatusWarning(a.accountStatus)}
+                      </p>
+                      {a.id && a.accountStatus === 'EXPIRED' ? (
+                        <button
+                          type="button"
+                          disabled={retrying === a.id}
+                          onClick={() => void handleRetryConnection(a.id!)}
+                          className="mt-1.5 text-[12.5px] font-semibold text-rose-700 underline-offset-2 hover:underline disabled:opacity-50 dark:text-rose-300"
+                        >
+                          {retrying === a.id
+                            ? 'Retrying…'
+                            : 'Try again with the credentials already saved — no new token needed'}
+                        </button>
+                      ) : null}
+                    </div>
                   ) : null}
                 </div>
 

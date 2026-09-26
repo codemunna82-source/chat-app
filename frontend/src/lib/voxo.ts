@@ -539,6 +539,20 @@ export function updateMetaApp(
   return request<MetaAppSummary>(`/meta-apps/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
 }
 
+/**
+ * Retries with the access token already saved — no new one needed.
+ *
+ * `accountStatus: EXPIRED` is VOXO's own flag, set the moment Meta once
+ * rejected a send; it is not Meta's word that the stored token is dead.
+ * A fix made entirely on Meta's side (a System User's asset assignment,
+ * a connected app revoked) never changes that token, so this is the way
+ * to ask VOXO to just try it again, instead of having to paste the same
+ * value back into "Replace credentials" to get the same effect.
+ */
+export function retryMetaAppConnection(id: string): Promise<{ reconnectedAccounts: number }> {
+  return request<{ reconnectedAccounts: number }>(`/meta-apps/${id}/retry-connection`, { method: 'POST' });
+}
+
 /* ── WhatsApp numbers, for the assignment dropdown ────────────────── */
 
 export function listWhatsAppNumbers(): Promise<WhatsAppNumber[]> {
