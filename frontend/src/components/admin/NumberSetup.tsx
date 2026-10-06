@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConfirmDeleteDialog } from '@/components/admin/ConfirmDeleteDialog';
 import {
   setNumberBusinessManager,
   addWhatsAppNumber,
@@ -106,7 +107,8 @@ export function NumberSetup({
   const [busy, setBusy] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [calling, setCalling] = useState<string | null>(null);
-  const [removing, setRemoving] = useState<string | null>(null);
+  /** Which number's remove-confirmation dialog is open, if any. */
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [config, setConfig] = useState<MetaConfigHealth | null>(null);
@@ -190,32 +192,15 @@ export function NumberSetup({
   /**
    * Removes a number from the workspace outright.
    *
-   * The server refuses while it still carries customer chats and names the
-   * count — shown as-is, since it points at the actual fix: the access
-   * switch above, which locks members out and keeps the chat history
-   * readable instead of deleting the number out from under it.
+   * The dialog's own first attempt goes through with `force: false`; the
+   * server's 409 (still has customer chats) is what the dialog shows and
+   * offers to override — forcing deletes those chats, messages, call logs
+   * and guest-chat sessions along with the number.
    */
-  async function handleRemove(id: string, label: string) {
-    if (
-      !window.confirm(
-        `Remove ${label}? This deletes the number from VOXO for good — there is no undo. It only works ` +
-          'while the number has no customer chats on it.',
-      )
-    ) {
-      return;
-    }
-    setRemoving(id);
-    setError(null);
-    setNotice(null);
-    try {
-      await removeWhatsAppNumber(id);
-      setNotice(`${label}: removed.`);
-      await onChanged();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove that number.');
-    } finally {
-      setRemoving(null);
-    }
+  async function handleRemove(id: string, label: string, force: boolean) {
+    await removeWhatsAppNumber(id, force);
+    setNotice(`${label}: removed.`);
+    await onChanged();
   }
 
   /**
@@ -670,14 +655,14 @@ export function NumberSetup({
                     {busy === n.id ? 'Registering…' : pending ? 'Register with Meta' : 'Re-register'}
                   </Button>
 
-                  <button
+                  <Button
                     type="button"
-                    disabled={removing !== null}
-                    onClick={() => void handleRemove(n.id, n.displayPhoneNumber)}
-                    className="text-[13px] font-semibold text-rose-500 hover:text-rose-600 disabled:opacity-50"
+                    variant="outline"
+                    className="h-9 min-h-9 w-full border-rose-500/30 bg-rose-500/5 px-3 text-[13px] font-semibold text-rose-600 hover:bg-rose-500/15 sm:w-auto sm:shrink-0 dark:text-rose-400"
+                    onClick={() => setDeleteTarget(n.id)}
                   >
-                    {removing === n.id ? 'Removing…' : 'Remove'}
-                  </button>
+                    Remove
+                  </Button>
                 </div>
               </li>
             );
@@ -763,6 +748,16 @@ export function NumberSetup({
           </p>
         </div>
       </form>
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        title={`Remove ${numbers.find((n) => n.id === deleteTarget)?.displayPhoneNumber ?? 'this number'}?`}
+        description="This deletes the number from VOXO for good — there is no undo."
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={(force) =>
+          handleRemove(deleteTarget!, numbers.find((n) => n.id === deleteTarget)?.displayPhoneNumber ?? '', force)
+        }
+      />
     </section>
   );
 }

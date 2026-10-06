@@ -336,6 +336,19 @@ export function disableMember(id: string): Promise<unknown> {
   return request(`/users/${id}`, { method: 'DELETE' });
 }
 
+/**
+ * A real, permanent delete — beside `disableMember` above, which is the
+ * default and reversible. The server refuses self-removal and removing the
+ * last MASTER_ADMIN outright (400, not 409): those are not "something is
+ * attached" warnings with a force override, they are rules with no force
+ * path, so this never takes a `force` flag the way the BM/number deletes do.
+ */
+export function deleteMemberPermanently(id: string): Promise<{ id: string; removed: true; removedDevices: number }> {
+  return request<{ id: string; removed: true; removedDevices: number }>(`/users/${id}/permanently`, {
+    method: 'DELETE',
+  });
+}
+
 /* ── Workspace settings ───────────────────────────────────────────── */
 
 export interface AutoGuestLink {
@@ -560,10 +573,18 @@ export function retryMetaAppConnection(id: string): Promise<{ reconnectedAccount
  * The server refuses (409, `META_APP_IN_USE`) while it still holds any
  * WhatsApp numbers or connected accounts, and the refusal's `message` names
  * exactly what to move or disconnect first — show it as-is rather than a
- * generic "failed" toast.
+ * generic "failed" toast. `force: true` is the admin's deliberate "take
+ * them with it": the server then cascades through the same path a
+ * standalone number delete takes, chats and all.
  */
-export function deleteMetaApp(id: string): Promise<{ id: string; removed: true }> {
-  return request<{ id: string; removed: true }>(`/meta-apps/${id}`, { method: 'DELETE' });
+export function deleteMetaApp(
+  id: string,
+  force = false,
+): Promise<{ id: string; removed: true; removedNumbers: number }> {
+  return request<{ id: string; removed: true; removedNumbers: number }>(
+    `/meta-apps/${id}${force ? '?force=true' : ''}`,
+    { method: 'DELETE' },
+  );
 }
 
 /* ── WhatsApp numbers, for the assignment dropdown ────────────────── */
@@ -636,11 +657,16 @@ export function setNumberCalling(id: string, enabled: boolean): Promise<WhatsApp
  * The server refuses (409, `WHATSAPP_NUMBER_HAS_HISTORY`) while the number
  * still carries customer chats, and names the count in `message` — show
  * that text as-is; the fix it points at is the enabled switch above, not
- * this call.
+ * this call. `force: true` is the admin's deliberate "delete the chats
+ * too" — the server cascades the number's conversations, messages, call
+ * logs and guest-chat sessions along with it, no undo.
  */
-export function removeWhatsAppNumber(id: string): Promise<{ id: string; removed: true; unassignedUsers: number }> {
-  return request<{ id: string; removed: true; unassignedUsers: number }>(
-    `/whatsapp/numbers/${encodeURIComponent(id)}`,
+export function removeWhatsAppNumber(
+  id: string,
+  force = false,
+): Promise<{ id: string; removed: true; unassignedUsers: number; deletedConversations: number }> {
+  return request<{ id: string; removed: true; unassignedUsers: number; deletedConversations: number }>(
+    `/whatsapp/numbers/${encodeURIComponent(id)}${force ? '?force=true' : ''}`,
     { method: 'DELETE' },
   );
 }

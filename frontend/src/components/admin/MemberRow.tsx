@@ -20,6 +20,7 @@ export function MemberRow({
   isSelf,
   onEdit,
   onToggleDisabled,
+  onDelete,
 }: {
   member: TeamMember;
   numbers: WhatsAppNumber[];
@@ -27,6 +28,8 @@ export function MemberRow({
   isSelf: boolean;
   onEdit: () => void;
   onToggleDisabled: () => void;
+  /** Permanent delete — distinct from Disable, which is reversible and the default. */
+  onDelete: () => void;
 }) {
   const disabled = member.status === 'DISABLED';
   const left = daysLeft(member.validUntil);
@@ -107,6 +110,20 @@ export function MemberRow({
                 onClick={onToggleDisabled}
               >
                 {disabled ? 'Enable' : 'Disable'}
+              </Button>
+            ) : null}
+            {/* Permanent delete, separate from Disable above: Disable is
+                reversible and keeps every message this person sent showing
+                who sent it, which is right for almost every case — this is
+                only for the account created by mistake or the person who
+                is gone for good. */}
+            {!isSelf && member.role !== 'MASTER_ADMIN' ? (
+              <Button
+                variant="outline"
+                className="h-9 min-h-9 border-rose-500/30 bg-rose-500/5 px-3 text-[13px] font-semibold text-rose-600 hover:bg-rose-500/15 dark:text-rose-400"
+                onClick={onDelete}
+              >
+                Delete
               </Button>
             ) : null}
           </div>

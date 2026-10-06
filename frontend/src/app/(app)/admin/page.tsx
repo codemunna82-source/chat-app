@@ -7,6 +7,7 @@ import { clearSession, useSession } from '@/store/useSession';
 import {
   VoxoError,
   disableMember,
+  deleteMemberPermanently,
   fetchMe,
   listMembers,
   listWhatsAppNumbers,
@@ -24,6 +25,7 @@ import { Section } from '@/components/admin/Section';
 import { BusinessProfile } from '@/components/admin/BusinessProfile';
 import { SectionBoundary } from '@/components/admin/SectionBoundary';
 import { Modal } from '@/components/ui/modal';
+import { ConfirmDeleteDialog } from '@/components/admin/ConfirmDeleteDialog';
 import { WhatsAppNudges } from '@/components/admin/WhatsAppNudges';
 
 type AdminTab = 'business-managers' | 'numbers' | 'profile' | 'auto-replies' | 'nudges' | 'team';
@@ -60,6 +62,8 @@ export default function AdminPage() {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<TeamMember | null>(null);
   const [inviting, setInviting] = useState(false);
+  /** Which member's permanent-delete dialog is open, if any. */
+  const [deleteMemberTarget, setDeleteMemberTarget] = useState<TeamMember | null>(null);
   /**
    * Whether the number panel is open.
    *
@@ -342,6 +346,7 @@ export default function AdminPage() {
                       setEditing(member);
                     }}
                     onToggleDisabled={() => void handleDisable(member)}
+                    onDelete={() => setDeleteMemberTarget(member)}
                   />
                 ))}
               </ul>
@@ -350,6 +355,18 @@ export default function AdminPage() {
           </Section>
         </div>
       </div>
+
+      <ConfirmDeleteDialog
+        open={deleteMemberTarget !== null}
+        title={`Delete ${deleteMemberTarget?.displayName || deleteMemberTarget?.phone || deleteMemberTarget?.email || 'this user'}?`}
+        description="This removes their account for good — there is no undo. Messages and call logs they're part of stay, so the history still shows who sent them."
+        confirmLabel="Delete"
+        onClose={() => setDeleteMemberTarget(null)}
+        onConfirm={async () => {
+          await deleteMemberPermanently(deleteMemberTarget!.id);
+          await load();
+        }}
+      />
 
       {/* In a dialog rather than inline, because "Add user" lives in the
           page header and this section is the LAST of five. Opened inline,

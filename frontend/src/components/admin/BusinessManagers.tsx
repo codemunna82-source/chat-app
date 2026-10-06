@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { ConfirmDeleteDialog } from '@/components/admin/ConfirmDeleteDialog';
 import {
   createMetaApp,
   deleteMetaApp,
@@ -109,7 +110,8 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
   const [copied, setCopied] = useState<string | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
+  /** Which app's remove-confirmation dialog is open, if any. */
+  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
   /** Which app's credentials are being edited, if any. */
   const [editing, setEditing] = useState<string | null>(null);
   const [editToken, setEditToken] = useState('');
@@ -194,34 +196,15 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
    * Removes a Business Manager outright — its app secret and access token
    * go with the row, no soft-delete.
    *
-   * The server refuses while it still holds any WhatsApp numbers or
-   * connected accounts, and says exactly which — that message is shown
-   * as-is rather than a generic failure, since it names the actual next
-   * step (move the numbers, or disconnect the accounts) instead of this
-   * button needing a second try.
+   * The dialog's own first attempt goes through with `force: false`; the
+   * server's 409 (still holds numbers or connected accounts) is what the
+   * dialog shows and offers to override, rather than this needing to
+   * pre-compute the warning itself.
    */
-  async function handleDelete(id: string) {
-    const app = apps?.find((a) => a.id === id);
-    if (
-      !window.confirm(
-        `Remove ${app?.name ?? 'this Business Manager'}? This deletes its stored app secret and access token ` +
-          'for good — there is no undo. It only works while no WhatsApp numbers or connected accounts are left ' +
-          'under it.',
-      )
-    ) {
-      return;
-    }
-    setDeleting(id);
-    setError(null);
-    try {
-      await deleteMetaApp(id);
-      await load();
-      await onChanged?.();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not remove that Business Manager.');
-    } finally {
-      setDeleting(null);
-    }
+  async function handleDelete(id: string, force: boolean) {
+    await deleteMetaApp(id, force);
+    await load();
+    await onChanged?.();
   }
 
   /**
@@ -555,14 +538,14 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
                   it is not a document, just the environment's fallback
                   token shown so the list is never silently incomplete. */}
               {a.id ? (
-                <button
+                <Button
                   type="button"
-                  onClick={() => void handleDelete(a.id!)}
-                  disabled={deleting === a.id}
-                  className="mt-2 text-[12.5px] font-semibold text-rose-600 underline-offset-2 hover:underline disabled:opacity-50 dark:text-rose-400"
+                  variant="outline"
+                  className="mt-2 h-9 min-h-9 border-rose-500/30 bg-rose-500/5 px-3 text-[12.5px] font-semibold text-rose-600 hover:bg-rose-500/15 dark:text-rose-400"
+                  onClick={() => setDeleteTarget(a.id!)}
                 >
-                  {deleting === a.id ? 'Removing…' : 'Remove'}
-                </button>
+                  Remove Business Manager
+                </Button>
               ) : null}
               </div>
             </li>
@@ -647,6 +630,14 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
           Add a Business Manager
         </Button>
       )}
+
+      <ConfirmDeleteDialog
+        open={deleteTarget !== null}
+        title={`Remove ${apps?.find((a) => a.id === deleteTarget)?.name ?? 'this Business Manager'}?`}
+        description="This deletes its stored app secret and access token for good — there is no undo."
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={(force) => handleDelete(deleteTarget!, force)}
+      />
     </section>
   );
 }
