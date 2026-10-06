@@ -553,6 +553,19 @@ export function retryMetaAppConnection(id: string): Promise<{ reconnectedAccount
   return request<{ reconnectedAccounts: number }>(`/meta-apps/${id}/retry-connection`, { method: 'POST' });
 }
 
+/**
+ * Removes a Business Manager outright — no soft-delete, the app secret and
+ * access token go with the row.
+ *
+ * The server refuses (409, `META_APP_IN_USE`) while it still holds any
+ * WhatsApp numbers or connected accounts, and the refusal's `message` names
+ * exactly what to move or disconnect first — show it as-is rather than a
+ * generic "failed" toast.
+ */
+export function deleteMetaApp(id: string): Promise<{ id: string; removed: true }> {
+  return request<{ id: string; removed: true }>(`/meta-apps/${id}`, { method: 'DELETE' });
+}
+
 /* ── WhatsApp numbers, for the assignment dropdown ────────────────── */
 
 export function listWhatsAppNumbers(): Promise<WhatsAppNumber[]> {
@@ -615,6 +628,21 @@ export function setNumberCalling(id: string, enabled: boolean): Promise<WhatsApp
     method: 'PATCH',
     body: JSON.stringify({ enabled }),
   });
+}
+
+/**
+ * Removes a number from the workspace outright.
+ *
+ * The server refuses (409, `WHATSAPP_NUMBER_HAS_HISTORY`) while the number
+ * still carries customer chats, and names the count in `message` — show
+ * that text as-is; the fix it points at is the enabled switch above, not
+ * this call.
+ */
+export function removeWhatsAppNumber(id: string): Promise<{ id: string; removed: true; unassignedUsers: number }> {
+  return request<{ id: string; removed: true; unassignedUsers: number }>(
+    `/whatsapp/numbers/${encodeURIComponent(id)}`,
+    { method: 'DELETE' },
+  );
 }
 
 export function registerNumberForCloudApi(

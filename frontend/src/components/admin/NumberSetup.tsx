@@ -10,6 +10,7 @@ import {
   registerNumberForCloudApi,
   setNumberEnabled,
   setNumberCalling,
+  removeWhatsAppNumber,
   generateLinkApiKey,
   revokeLinkApiKey,
   type MetaConfigHealth,
@@ -105,6 +106,7 @@ export function NumberSetup({
   const [busy, setBusy] = useState<string | null>(null);
   const [toggling, setToggling] = useState<string | null>(null);
   const [calling, setCalling] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [config, setConfig] = useState<MetaConfigHealth | null>(null);
@@ -182,6 +184,37 @@ export function NumberSetup({
       setError(err instanceof Error ? err.message : 'Could not change access for that number.');
     } finally {
       setToggling(null);
+    }
+  }
+
+  /**
+   * Removes a number from the workspace outright.
+   *
+   * The server refuses while it still carries customer chats and names the
+   * count — shown as-is, since it points at the actual fix: the access
+   * switch above, which locks members out and keeps the chat history
+   * readable instead of deleting the number out from under it.
+   */
+  async function handleRemove(id: string, label: string) {
+    if (
+      !window.confirm(
+        `Remove ${label}? This deletes the number from VOXO for good — there is no undo. It only works ` +
+          'while the number has no customer chats on it.',
+      )
+    ) {
+      return;
+    }
+    setRemoving(id);
+    setError(null);
+    setNotice(null);
+    try {
+      await removeWhatsAppNumber(id);
+      setNotice(`${label}: removed.`);
+      await onChanged();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove that number.');
+    } finally {
+      setRemoving(null);
     }
   }
 
@@ -636,6 +669,15 @@ export function NumberSetup({
                   >
                     {busy === n.id ? 'Registering…' : pending ? 'Register with Meta' : 'Re-register'}
                   </Button>
+
+                  <button
+                    type="button"
+                    disabled={removing !== null}
+                    onClick={() => void handleRemove(n.id, n.displayPhoneNumber)}
+                    className="text-[13px] font-semibold text-rose-500 hover:text-rose-600 disabled:opacity-50"
+                  >
+                    {removing === n.id ? 'Removing…' : 'Remove'}
+                  </button>
                 </div>
               </li>
             );

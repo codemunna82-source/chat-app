@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
   createMetaApp,
+  deleteMetaApp,
   listMetaApps,
   retryMetaAppConnection,
   rotateMetaAppVerifyToken,
@@ -108,6 +109,7 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
   const [copied, setCopied] = useState<string | null>(null);
   const [rotating, setRotating] = useState<string | null>(null);
   const [retrying, setRetrying] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
   /** Which app's credentials are being edited, if any. */
   const [editing, setEditing] = useState<string | null>(null);
   const [editToken, setEditToken] = useState('');
@@ -185,6 +187,40 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
       setError(err instanceof Error ? err.message : 'Could not retry the connection.');
     } finally {
       setRetrying(null);
+    }
+  }
+
+  /**
+   * Removes a Business Manager outright — its app secret and access token
+   * go with the row, no soft-delete.
+   *
+   * The server refuses while it still holds any WhatsApp numbers or
+   * connected accounts, and says exactly which — that message is shown
+   * as-is rather than a generic failure, since it names the actual next
+   * step (move the numbers, or disconnect the accounts) instead of this
+   * button needing a second try.
+   */
+  async function handleDelete(id: string) {
+    const app = apps?.find((a) => a.id === id);
+    if (
+      !window.confirm(
+        `Remove ${app?.name ?? 'this Business Manager'}? This deletes its stored app secret and access token ` +
+          'for good — there is no undo. It only works while no WhatsApp numbers or connected accounts are left ' +
+          'under it.',
+      )
+    ) {
+      return;
+    }
+    setDeleting(id);
+    setError(null);
+    try {
+      await deleteMetaApp(id);
+      await load();
+      await onChanged?.();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not remove that Business Manager.');
+    } finally {
+      setDeleting(null);
     }
   }
 
@@ -515,6 +551,19 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
               >
                 {rotating === a.id ? 'Generating…' : 'Generate a new verify token'}
               </button>
+              {/* The server-config row has no id of its own to delete —
+                  it is not a document, just the environment's fallback
+                  token shown so the list is never silently incomplete. */}
+              {a.id ? (
+                <button
+                  type="button"
+                  onClick={() => void handleDelete(a.id!)}
+                  disabled={deleting === a.id}
+                  className="mt-2 text-[12.5px] font-semibold text-rose-600 underline-offset-2 hover:underline disabled:opacity-50 dark:text-rose-400"
+                >
+                  {deleting === a.id ? 'Removing…' : 'Remove'}
+                </button>
+              ) : null}
               </div>
             </li>
           ))}
