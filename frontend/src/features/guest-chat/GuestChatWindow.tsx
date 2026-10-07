@@ -3500,6 +3500,20 @@ function PhotoViewer({
     [photos.length, safeIndex, onIndex],
   );
 
+  /**
+   * A horizontal drag across the photo, the third way through a batch
+   * beside the arrows and the strip.
+   *
+   * Decided on release, from the total movement, rather than followed
+   * live — the photo does not drag under the finger. A vertical or
+   * near-diagonal drag is left alone: it is very likely the start of a
+   * pinch or a scroll, not a page-through, and nothing here calls
+   * preventDefault, so that gesture keeps working exactly as it did
+   * before a swipe meant anything on this screen.
+   */
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
+  const SWIPE_THRESHOLD_PX = 48;
+
   if (!current) return null;
 
   return (
@@ -3542,8 +3556,32 @@ function PhotoViewer({
       {/* The photo. Tapping the backdrop closes; tapping the picture does
           not, or every attempt to look closely dismisses it. The arrows
           sit over the backdrop rather than beside it, so the photo itself
-          never resizes or shifts as the batch is browsed. */}
-      <div className="relative flex min-h-0 flex-1 items-center justify-center p-2" onClick={onClose}>
+          never resizes or shifts as the batch is browsed. A swipe across
+          it pages through the batch the same way a tap on an arrow does —
+          see the comment on swipeStart above for why it only acts on
+          release and leaves a vertical drag alone. */}
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center p-2"
+        onClick={onClose}
+        onTouchStart={(e) => {
+          const t = e.touches[0];
+          swipeStart.current = t ? { x: t.clientX, y: t.clientY } : null;
+        }}
+        onTouchEnd={(e) => {
+          const start = swipeStart.current;
+          swipeStart.current = null;
+          if (!start || photos.length <= 1) return;
+          const end = e.changedTouches[0];
+          if (!end) return;
+          const deltaX = end.clientX - start.x;
+          const deltaY = end.clientY - start.y;
+          if (Math.abs(deltaX) < SWIPE_THRESHOLD_PX || Math.abs(deltaX) <= Math.abs(deltaY)) return;
+          // Finger moving right pages to the previous photo, left to the
+          // next — the same convention as a book, and the one every other
+          // photo viewer on a phone already uses.
+          goTo(deltaX > 0 ? safeIndex - 1 : safeIndex + 1);
+        }}
+      >
         {photos.length > 1 && safeIndex > 0 && (
           <button
             type="button"
