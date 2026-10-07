@@ -472,6 +472,18 @@ export interface MetaAppSummary {
    * ACTIVE/DISABLED and is an admin's own local switch, not Meta's word.
    */
   accountStatus?: string | null;
+  /**
+   * Meta's own verdict on the WhatsApp Business Account itself — AVAILABLE,
+   * LIMITED, BLOCKED — worst-case across every account this Business
+   * Manager holds. Null when nothing is wrong, or nothing has been read
+   * yet. Distinct from every number's own `canSendMessage`: a payment
+   * failure on the Business Manager blocks every number under it while
+   * each one individually still reads AVAILABLE, so this is the only
+   * place that failure is visible at all.
+   */
+  wabaCanSendMessage?: string | null;
+  /** Meta's own sentence for `wabaCanSendMessage`, when not AVAILABLE. */
+  wabaBlockReason?: string | null;
   /** True for the environment row, which is shown but not editable. */
   isDefault: boolean;
   createdAt: string | null;

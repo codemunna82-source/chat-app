@@ -59,6 +59,28 @@ function accountStatusWarning(accountStatus: string | null | undefined): string 
   }
 }
 
+/**
+ * Meta's own verdict on the Business Account itself, not on VOXO's
+ * connection to it — a payment-method failure is the case this exists
+ * for: every number under this Business Manager can individually read
+ * AVAILABLE and healthy while nothing actually sends, because what Meta
+ * is refusing is the Business Manager's own standing. Without this
+ * reading the raw server logs was the only way to find out why.
+ *
+ * The reason is Meta's own sentence, shown verbatim rather than
+ * paraphrased — a rewording here is a guess about a state Meta may have
+ * already changed, and the raw sentence is both current and quotable in
+ * a support ticket.
+ */
+function wabaBlockWarning(canSendMessage: string | null | undefined, reason: string | null | undefined): string | null {
+  if (!canSendMessage || canSendMessage === 'AVAILABLE') return null;
+  const headline =
+    canSendMessage === 'LIMITED'
+      ? 'Meta is limiting this Business Account — some messages may not arrive.'
+      : 'Meta is not delivering from this Business Account — this affects every number under it.';
+  return reason ? `${headline} Meta says: ${reason}` : headline;
+}
+
 function CredentialState({ set }: { set: boolean }) {
   return set ? (
     <span className="font-semibold text-emerald-600 dark:text-emerald-400">Saved</span>
@@ -404,6 +426,18 @@ export function BusinessManagers({ onChanged }: { onChanged?: () => void | Promi
                             : 'Try again with the credentials already saved — no new token needed'}
                         </button>
                       ) : null}
+                    </div>
+                  ) : null}
+                  {/* Meta's verdict on the Business Account itself, apart
+                      from VOXO's own connection to it above — a payment
+                      failure is the case this exists for, where every
+                      number can individually read AVAILABLE while nothing
+                      actually sends. */}
+                  {wabaBlockWarning(a.wabaCanSendMessage, a.wabaBlockReason) ? (
+                    <div className="mt-1.5 rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2">
+                      <p className="text-[12.5px] font-medium leading-snug text-amber-700 dark:text-amber-400">
+                        {wabaBlockWarning(a.wabaCanSendMessage, a.wabaBlockReason)}
+                      </p>
                     </div>
                   ) : null}
                 </div>
