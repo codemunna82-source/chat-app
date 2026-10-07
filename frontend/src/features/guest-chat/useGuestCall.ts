@@ -130,6 +130,18 @@ export function useGuestCall(
    * the two ends with nothing to pair on.
    */
   const pendingLocalIceRef = useRef<RTCIceCandidateInit[]>([]);
+  /**
+   * An answer that arrived before `web:call:start`'s ack set callIdRef.
+   *
+   * Both are round trips to the same server with no ordering guaranteed
+   * between them, and the answer can only exist because the agent has
+   * already received the offer — so it is not rare, just fast. Dropped,
+   * which `onAnswered`'s id check used to do unconditionally, it left
+   * setRemoteDescription never called: ICE never reaches 'connected',
+   * phase sits at 'calling' forever, and the dial tone loops forever
+   * because nothing ever changes `call.phase` to turn it off.
+   */
+  const pendingAnsweredRef = useRef<{ callId: string; sdp: string } | null>(null);
   const remoteAudioRef = useRef<HTMLAudioElement | null>(null);
   /** Gives up on a ring nobody answers, rather than spinning forever. */
   const ringTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -175,6 +187,7 @@ export function useGuestCall(
     pendingOfferRef.current = null;
     pendingIceRef.current = [];
     pendingLocalIceRef.current = [];
+    pendingAnsweredRef.current = null;
     if (ringTimerRef.current) clearTimeout(ringTimerRef.current);
     ringTimerRef.current = null;
     if (remoteAudioRef.current) remoteAudioRef.current.srcObject = null;
@@ -271,6 +284,30 @@ export function useGuestCall(
     }
   }, []);
 
+  /**
+   * Applies the agent's answer to this call's own peer connection.
+   *
+   * Shared by the live socket listener and the id-just-arrived flush
+   * below — both end up with the same payload at a different moment,
+   * and the connecting-or-fail outcome has to be identical either way.
+   */
+  const applyAnswer = useCallback(
+    async (payload: { callId: string; sdp: string }) => {
+      const pc = pcRef.current;
+      if (!pc) return;
+      setPhase('connecting');
+      try {
+        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }));
+        await drainPendingIce(pc);
+      } catch {
+        setPhase('failed');
+        setMessage('Could not connect the call.');
+        teardown();
+      }
+    },
+    [drainPendingIce, teardown],
+  );
+
   /** The customer pressing Call, or Video call. */
   const startCall = useCallback(async (kind: 'audio' | 'video' = 'audio') => {
     if (phase !== 'idle') return;
@@ -333,6 +370,15 @@ export function useGuestCall(
           callIdRef.current = res.callId;
           flushLocalIce();
 
+          // The answer may have beaten this ack back from the server —
+          // see pendingAnsweredRef. Applied now rather than left for the
+          // listener, which already missed its one chance at this payload.
+          const pendingAnswered = pendingAnsweredRef.current;
+          if (pendingAnswered && pendingAnswered.callId === res.callId) {
+            pendingAnsweredRef.current = null;
+            void applyAnswer(pendingAnswered);
+          }
+
           // Nobody picked up. Ending it here also closes the row on the
           // server, which is what keeps the next call from colliding with
           // this one.
@@ -355,7 +401,7 @@ export function useGuestCall(
           : 'Could not start the call.',
       );
     }
-  }, [socket, phase, createPeer, teardown, flushLocalIce, demo, clearDemoTimers]);
+  }, [socket, phase, createPeer, teardown, flushLocalIce, applyAnswer, demo, clearDemoTimers]);
 
   /** The customer accepting a call the agent placed. */
   const acceptCall = useCallback(async () => {
@@ -483,17 +529,17 @@ export function useGuestCall(
     };
 
     const onAnswered = async (payload: { callId: string; sdp: string }) => {
-      const pc = pcRef.current;
-      if (!pc || callIdRef.current !== payload.callId) return;
-      setPhase('connecting');
-      try {
-        await pc.setRemoteDescription(new RTCSessionDescription({ type: 'answer', sdp: payload.sdp }));
-        await drainPendingIce(pc);
-      } catch {
-        setPhase('failed');
-        setMessage('Could not connect the call.');
-        teardown();
+      // callIdRef is set inside web:call:start's ack — a separate round
+      // trip to the same server, with no ordering guaranteed against
+      // this event. Buffered rather than dropped: the ack flushes it
+      // the moment the id is known, same as pendingLocalIceRef does for
+      // ICE candidates gathered before that same id arrives.
+      if (!callIdRef.current) {
+        pendingAnsweredRef.current = payload;
+        return;
       }
+      if (callIdRef.current !== payload.callId) return;
+      await applyAnswer(payload);
     };
 
     const onIce = async (payload: { callId: string; candidate: RTCIceCandidateInit }) => {
@@ -529,7 +575,7 @@ export function useGuestCall(
       socket.off('web:call:ice', onIce);
       socket.off('web:call:ended', onEnded);
     };
-  }, [socket, phase, drainPendingIce, teardown]);
+  }, [socket, phase, applyAnswer, teardown]);
 
   // Releases the microphone if the page is closed mid-call.
   useEffect(() => teardown, [teardown]);
