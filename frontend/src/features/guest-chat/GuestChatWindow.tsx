@@ -26,6 +26,7 @@ import { ChatSkeleton } from './ChatSkeleton';
 import { tapFeedback, useDismissOnBack } from './useDismissOnBack';
 import { outboxToMessage, readOutbox, writeOutbox, type OutboxItem } from './outbox';
 import {
+  BackIcon,
   BlockIcon,
   CameraIcon,
   ChevronDownIcon,
@@ -3458,6 +3459,12 @@ function AlbumRow({
  * on Android it fights the pinch-and-pan people expect on a picture.
  * Tapping is unambiguous and, unlike a swipe, it also says how many
  * there are.
+ *
+ * The arrows beside the photo are a second, swipe-free way to move
+ * through the batch one at a time — the strip still works for jumping
+ * straight to a photo further off. Each move slides the new photo in
+ * from the direction it came from, so "next" and "previous" read as
+ * motion rather than a cut.
  */
 function PhotoViewer({
   token,
@@ -3478,6 +3485,21 @@ function PhotoViewer({
   // deleted while it is open, and an index past the end would blank it.
   const safeIndex = Math.min(index, photos.length - 1);
   const current = photos[safeIndex];
+  // Which way the photo just moved, for the slide-in animation below.
+  // Not reset on close/reopen: the only thing that reads it is the photo
+  // itself, keyed on id+direction, so a stale value sits unused until the
+  // next move picks a fresh one.
+  const [direction, setDirection] = useState<'next' | 'prev'>('next');
+
+  const goTo = useCallback(
+    (nextIndex: number) => {
+      if (nextIndex < 0 || nextIndex >= photos.length || nextIndex === safeIndex) return;
+      setDirection(nextIndex > safeIndex ? 'next' : 'prev');
+      onIndex(nextIndex);
+    },
+    [photos.length, safeIndex, onIndex],
+  );
+
   if (!current) return null;
 
   return (
@@ -3518,14 +3540,42 @@ function PhotoViewer({
       </div>
 
       {/* The photo. Tapping the backdrop closes; tapping the picture does
-          not, or every attempt to look closely dismisses it. */}
-      <div className="flex min-h-0 flex-1 items-center justify-center p-2" onClick={onClose}>
-        <ViewerImage
-          key={current.id}
-          token={token}
-          message={current}
-          onClick={(e) => e.stopPropagation()}
-        />
+          not, or every attempt to look closely dismisses it. The arrows
+          sit over the backdrop rather than beside it, so the photo itself
+          never resizes or shifts as the batch is browsed. */}
+      <div className="relative flex min-h-0 flex-1 items-center justify-center p-2" onClick={onClose}>
+        {photos.length > 1 && safeIndex > 0 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goTo(safeIndex - 1);
+            }}
+            aria-label="Previous photo"
+            className="absolute left-1 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white active:bg-black/55 sm:left-3"
+          >
+            <BackIcon className="h-5 w-5" />
+          </button>
+        )}
+        {photos.length > 1 && safeIndex < photos.length - 1 && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              goTo(safeIndex + 1);
+            }}
+            aria-label="Next photo"
+            className="absolute right-1 top-1/2 z-10 flex h-10 w-10 -translate-y-1/2 items-center justify-center rounded-full bg-black/35 text-white active:bg-black/55 sm:right-3"
+          >
+            <BackIcon className="h-5 w-5 rotate-180" />
+          </button>
+        )}
+        <div
+          key={`${current.id}-${direction}`}
+          className={direction === 'next' ? 'wa-photo-slide-next' : 'wa-photo-slide-prev'}
+        >
+          <ViewerImage token={token} message={current} onClick={(e) => e.stopPropagation()} />
+        </div>
       </div>
 
       {photos.length > 1 && (
@@ -3534,7 +3584,7 @@ function PhotoViewer({
             <button
               key={m.id}
               type="button"
-              onClick={() => onIndex(i)}
+              onClick={() => goTo(i)}
               aria-label={`Photo ${i + 1}`}
               aria-current={i === safeIndex}
               className={[

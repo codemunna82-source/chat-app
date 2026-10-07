@@ -768,3 +768,36 @@ html.dark .wa-shimmer::after {
     animation: none;
   }
 }
+
+/* The photo viewer's arrows and thumbnail strip both move to a new photo
+ * in the same way: it slides in from the side it logically came from,
+ * rather than cutting straight to the next image, so "next"/"previous"
+ * reads as motion in a batch rather than a jump. */
+.wa-photo-slide-next {
+  animation: wa-photo-slide-next 220ms cubic-bezier(0.22, 0.75, 0.3, 1);
+}
+
+@keyframes wa-photo-slide-next {
+  from {
+    transform: translateX(28px);
+    opacity: 0;
+  }
+}
+
+.wa-photo-slide-prev {
+  animation: wa-photo-slide-prev 220ms cubic-bezier(0.22, 0.75, 0.3, 1);
+}
+
+@keyframes wa-photo-slide-prev {
+  from {
+    transform: translateX(-28px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wa-photo-slide-next,
+  .wa-photo-slide-prev {
+    animation: none;
+  }
+}
