@@ -175,8 +175,8 @@ function startsNewGroup(current: ThreadMessage, previous?: ThreadMessage): boole
 
 /** Photos sent together group into one grid, exactly as the agent app does. */
 const ALBUM_WINDOW_MS = 5 * 60_000;
-/** Three tiles, then a "+N" — a fourth means a second full row, which is the strip again. */
-const ALBUM_MAX_TILES = 3;
+/** Four tiles in a 2×2 grid, then a "+N" on the last one. */
+const ALBUM_MAX_TILES = 4;
 
 type ThreadItem =
   | { kind: 'one'; key: string; message: ThreadMessage }
@@ -3351,9 +3351,9 @@ function LiveWaveform({ levels, paused }: { levels: number[]; paused: boolean })
  * Several photos sent together, as one grid.
  *
  * The agent app's shape, tile for tile: two side by side, three or more
- * as one across the top with two beneath and the count on the last. The
- * two clients are halves of one conversation and a batch of five has to
- * look like the same batch on both.
+ * as a 2×2 grid with the count on the last tile. The two clients are
+ * halves of one conversation and a batch of five has to look like the
+ * same batch on both.
  *
  * Tiles reuse ChatImage, so they fetch, cache and revoke exactly as a
  * single photo does — and tapping one opens the same lightbox.
@@ -3425,12 +3425,25 @@ function AlbumRow({
             </span>
           ) : (
             <>
-              {tile(tiles[0]!, 0, 0, 'h-[140px] w-full')}
-              <span className="mt-[2px] flex gap-[2px]">
-                {tiles.slice(1).map((m, i) =>
-                  tile(m, i + 1, i === tiles.length - 2 ? hidden : 0, 'h-[112px] w-1/2'),
-                )}
+              <span className="flex gap-[2px]">
+                {tiles.slice(0, 2).map((m, i) => tile(m, i, 0, 'h-[112px] w-1/2'))}
               </span>
+              {tiles.length > 2 && (
+                // A third photo with no fourth yet takes the whole row
+                // rather than leaving a half-empty one — the 2×2 grid is
+                // what four or more fill, not what three is forced into.
+                <span className="mt-[2px] flex gap-[2px]">
+                  {tiles.slice(2).map((m, i) => {
+                    const index = i + 2;
+                    return tile(
+                      m,
+                      index,
+                      index === tiles.length - 1 ? hidden : 0,
+                      `h-[112px] ${tiles.length === 3 ? 'w-full' : 'w-1/2'}`,
+                    );
+                  })}
+                </span>
+              )}
             </>
           )}
           <span className="flex items-center justify-end gap-1 px-[3px] pt-[3px] text-[11px] text-[var(--wa-meta)]">
