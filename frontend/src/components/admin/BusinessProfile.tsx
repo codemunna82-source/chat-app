@@ -28,6 +28,14 @@ import {
  */
 const SOURCE_COPY: Record<BusinessNameSource, { text: string; tone: 'ok' | 'warn' }> = {
   settings: { text: 'This is the name you set here.', tone: 'ok' },
+  // A team member's account name: whoever is assigned to this number,
+  // or — when nobody is — your own admin account's, which is why this
+  // can show something never meant to be customer-facing (an admin
+  // label like "Master Admin"). Setting the name below overrides it.
+  member: {
+    text: 'Taken from a team member’s account name — whoever is assigned to this number, or your own if nobody is. Set your business name below for something customer-facing instead.',
+    tone: 'warn',
+  },
   whatsapp: { text: 'Taken from your WhatsApp number’s approved display name.', tone: 'ok' },
   workspace: { text: 'Falling back to your workspace name, because nothing else is set.', tone: 'warn' },
   fallback: {

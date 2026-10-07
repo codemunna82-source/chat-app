@@ -380,7 +380,7 @@ export interface AutoGuestLink {
 }
 
 /** Where the name a customer sees in the web chat window came from. */
-export type BusinessNameSource = 'settings' | 'whatsapp' | 'workspace' | 'fallback';
+export type BusinessNameSource = 'settings' | 'member' | 'whatsapp' | 'workspace' | 'fallback';
 
 export interface BusinessProfile {
   /** The override set on this screen; empty when unset. */
