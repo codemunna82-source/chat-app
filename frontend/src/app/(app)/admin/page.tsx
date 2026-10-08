@@ -326,7 +326,7 @@ export default function AdminPage() {
             title="Template reports"
             description="Which templates are being delivered, which are being refused and why, which number they went out on, and how long a delivered one typically takes."
           >
-            <SectionBoundary><TemplateStats numbers={numbers} /></SectionBoundary>
+            <SectionBoundary><TemplateStats numbers={numbers} members={members ?? []} /></SectionBoundary>
           </Section>
         </div>
 

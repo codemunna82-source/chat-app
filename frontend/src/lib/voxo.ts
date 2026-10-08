@@ -581,6 +581,12 @@ export interface MessageTally {
   failed: number;
 }
 
+export interface MessageVolumeByDay {
+  date: string;
+  in: number;
+  out: number;
+}
+
 export interface TemplateStats {
   windowDays: number;
   /** The number this report is scoped to, or undefined for the whole workspace. */
@@ -591,6 +597,8 @@ export interface TemplateStats {
   byTemplate: TemplateStatsRow[];
   byNumber: TemplateStatsByNumber[];
   byDay: TemplateStatsByDay[];
+  /** Every message, both directions, every type — not just templates. */
+  messagesByDay: MessageVolumeByDay[];
   medianDeliveryMinutes: number | null;
   averageDeliveryMinutes: number | null;
 }
