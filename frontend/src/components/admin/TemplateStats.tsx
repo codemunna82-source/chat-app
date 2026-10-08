@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { getTemplateStats, type TemplateStats } from '@/lib/voxo';
+import { getTemplateStats, type MessageTally, type TemplateStats, type WhatsAppNumber } from '@/lib/voxo';
 
 /**
  * Template delivery health, for the admin who owns the WhatsApp Business
@@ -9,10 +9,15 @@ import { getTemplateStats, type TemplateStats } from '@/lib/voxo';
  * error (sendFailureNote.ts deliberately renders a failed one as sent).
  * This is where that same failure finally surfaces: which template is
  * being refused, how often, why, on which number, and how long a
- * delivered one typically takes.
+ * delivered one typically takes — and, picking a number, that same
+ * breakdown plus how much of what it sent was plain WhatsApp text
+ * rather than an approved template.
  */
 
 const WINDOW_OPTIONS = [7, 30, 90] as const;
+/** "Every number" in the picker — never a real id, so it can never collide
+ *  with one. */
+const ALL_NUMBERS = 'all';
 
 /** emerald/rose — the same status colours already used for every other
  *  success/failure pair on this page (BusinessManagers, AutoReplySetup).
@@ -41,6 +46,19 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone?:
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+/** Sent/delivered/failed, as the three tiles both the template and the
+ *  plain-text sections need — pulled out so the two stay visibly the
+ *  same shape rather than drifting into two different layouts. */
+function TallyTiles({ tally, sentLabel }: { tally: MessageTally; sentLabel: string }) {
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      <StatTile label={sentLabel} value={String(tally.total)} />
+      <StatTile label="Delivered" value={String(tally.delivered)} tone="success" />
+      <StatTile label="Failed" value={String(tally.failed)} tone={tally.failed > 0 ? 'danger' : undefined} />
     </div>
   );
 }
@@ -83,17 +101,18 @@ function DayBars({ day, maxCount }: { day: TemplateStats['byDay'][number]; maxCo
   );
 }
 
-export function TemplateStats() {
+export function TemplateStats({ numbers }: { numbers: WhatsAppNumber[] }) {
   const [windowDays, setWindowDays] = useState<(typeof WINDOW_OPTIONS)[number]>(30);
+  const [numberId, setNumberId] = useState<string>(ALL_NUMBERS);
   const [stats, setStats] = useState<TemplateStats | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    // No reset to a loading state here: the previous window's numbers stay
-    // on screen until the new ones arrive, which reads as the chart
+    // No reset to a loading state here: the previous selection's numbers
+    // stay on screen until the new ones arrive, which reads as the report
     // updating rather than flashing back to "Loading…" on every click.
     let cancelled = false;
-    getTemplateStats(windowDays)
+    getTemplateStats({ windowDays, whatsappPhoneNumberId: numberId === ALL_NUMBERS ? undefined : numberId })
       .then((data) => {
         if (!cancelled) setStats(data);
       })
@@ -103,13 +122,14 @@ export function TemplateStats() {
     return () => {
       cancelled = true;
     };
-  }, [windowDays]);
+  }, [windowDays, numberId]);
 
   if (!stats) {
     return <p className="text-sm text-muted">{error ?? 'Loading…'}</p>;
   }
 
   const maxDayCount = Math.max(1, ...stats.byDay.map((d) => Math.max(d.delivered, d.failed)));
+  const scopedLabel = numbers.find((n) => n.id === numberId)?.displayPhoneNumber;
 
   return (
     <div className="mt-6 flex flex-col gap-8">
@@ -117,32 +137,63 @@ export function TemplateStats() {
         <p className="rounded-2xl border border-rose-500/25 bg-rose-500/10 px-4 py-3 text-sm text-rose-500">{error}</p>
       ) : null}
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-        <StatTile label="Templates sent (lifetime)" value={String(stats.totals.total)} />
-        <StatTile label="Delivered" value={String(stats.totals.delivered)} tone="success" />
-        <StatTile label="Failed" value={String(stats.totals.failed)} tone={stats.totals.failed > 0 ? 'danger' : undefined} />
-        <StatTile
-          label={`Typical delivery time (last ${stats.windowDays}d)`}
-          value={formatMinutes(stats.medianDeliveryMinutes)}
-        />
+      <label className="flex flex-wrap items-center gap-2 text-[13px]">
+        <span className="font-semibold text-muted">Number</span>
+        <select
+          value={numberId}
+          onChange={(e) => setNumberId(e.target.value)}
+          className="rounded-xl border border-border bg-surface px-3 py-1.5 text-[13px] font-medium"
+        >
+          <option value={ALL_NUMBERS}>All numbers</option>
+          {numbers.map((n) => (
+            <option key={n.id} value={n.id}>
+              {n.displayPhoneNumber}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <div>
+        <h3 className="text-sm font-semibold">
+          Approved templates{scopedLabel ? ` — ${scopedLabel}` : ' (lifetime)'}
+        </h3>
+        <div className="mt-3">
+          <TallyTiles tally={stats.totals} sentLabel="Sent" />
+        </div>
+      </div>
+
+      <div>
+        <h3 className="text-sm font-semibold">Plain WhatsApp text{scopedLabel ? ` — ${scopedLabel}` : ' (lifetime)'}</h3>
+        <p className="mt-0.5 text-[12.5px] text-muted">
+          Ordinary replies — never an approved template — on the same number(s).
+        </p>
+        <div className="mt-3">
+          <TallyTiles tally={stats.plainTotals} sentLabel="Sent" />
+        </div>
       </div>
 
       <div>
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-sm font-semibold">Sent per day</h3>
-          <div className="flex gap-1 rounded-xl border border-border p-0.5">
-            {WINDOW_OPTIONS.map((d) => (
-              <button
-                key={d}
-                type="button"
-                onClick={() => setWindowDays(d)}
-                className={`rounded-lg px-2.5 py-1 text-[12px] font-semibold transition ${
-                  windowDays === d ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
-                }`}
-              >
-                {d}d
-              </button>
-            ))}
+          <h3 className="text-sm font-semibold">Templates sent per day</h3>
+          <div className="flex items-center gap-3">
+            <StatTile
+              label={`Typical delivery time (${windowDays}d)`}
+              value={formatMinutes(stats.medianDeliveryMinutes)}
+            />
+            <div className="flex gap-1 rounded-xl border border-border p-0.5">
+              {WINDOW_OPTIONS.map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setWindowDays(d)}
+                  className={`rounded-lg px-2.5 py-1 text-[12px] font-semibold transition ${
+                    windowDays === d ? 'bg-primary text-white' : 'text-muted hover:text-foreground'
+                  }`}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
@@ -204,7 +255,7 @@ export function TemplateStats() {
       </div>
 
       <div>
-        <h3 className="text-sm font-semibold">By template</h3>
+        <h3 className="text-sm font-semibold">By template{scopedLabel ? ` — ${scopedLabel}` : ''}</h3>
         {stats.byTemplate.length === 0 ? (
           <p className="mt-3 rounded-2xl border border-border bg-surface/70 px-4 py-6 text-center text-sm text-muted">
             No templates sent yet.
@@ -241,35 +292,45 @@ export function TemplateStats() {
         )}
       </div>
 
-      <div>
-        <h3 className="text-sm font-semibold">By number</h3>
-        {stats.byNumber.length === 0 ? (
-          <p className="mt-3 rounded-2xl border border-border bg-surface/70 px-4 py-6 text-center text-sm text-muted">
-            No templates sent yet.
-          </p>
-        ) : (
-          <div className="mt-3 overflow-x-auto">
-            <table className="w-full text-left text-[12.5px]">
-              <thead className="text-muted">
-                <tr>
-                  <th className="py-1.5 pr-4 font-medium">Number</th>
-                  <th className="py-1.5 pr-4 font-medium">Sent</th>
-                  <th className="py-1.5 font-medium">Failed</th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.byNumber.map((row) => (
-                  <tr key={row.whatsappPhoneNumberId} className="border-t border-border/60">
-                    <td className="py-2 pr-4 font-medium">{row.displayPhoneNumber}</td>
-                    <td className="py-2 pr-4 tabular-nums">{row.total}</td>
-                    <td className={`py-2 tabular-nums ${row.failed > 0 ? 'text-rose-500' : ''}`}>{row.failed}</td>
+      {/* Only meaningful across the whole workspace — scoped to one
+          number this would just repeat the single row the tiles above
+          already show. */}
+      {numberId === ALL_NUMBERS ? (
+        <div>
+          <h3 className="text-sm font-semibold">By number</h3>
+          {stats.byNumber.length === 0 ? (
+            <p className="mt-3 rounded-2xl border border-border bg-surface/70 px-4 py-6 text-center text-sm text-muted">
+              No templates sent yet.
+            </p>
+          ) : (
+            <div className="mt-3 overflow-x-auto">
+              <table className="w-full text-left text-[12.5px]">
+                <thead className="text-muted">
+                  <tr>
+                    <th className="py-1.5 pr-4 font-medium">Number</th>
+                    <th className="py-1.5 pr-4 font-medium">Sent</th>
+                    <th className="py-1.5 font-medium">Failed</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                </thead>
+                <tbody>
+                  {stats.byNumber.map((row) => (
+                    <tr
+                      key={row.whatsappPhoneNumberId}
+                      onClick={() => setNumberId(row.whatsappPhoneNumberId)}
+                      className="cursor-pointer border-t border-border/60 hover:bg-surface-hover"
+                    >
+                      <td className="py-2 pr-4 font-medium">{row.displayPhoneNumber}</td>
+                      <td className="py-2 pr-4 tabular-nums">{row.total}</td>
+                      <td className={`py-2 tabular-nums ${row.failed > 0 ? 'text-rose-500' : ''}`}>{row.failed}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p className="mt-1.5 text-[11.5px] text-muted">Tap a number to see its own breakdown above.</p>
+            </div>
+          )}
+        </div>
+      ) : null}
     </div>
   );
 }

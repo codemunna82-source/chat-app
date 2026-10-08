@@ -575,9 +575,19 @@ export interface TemplateStatsByDay {
   failed: number;
 }
 
+export interface MessageTally {
+  total: number;
+  delivered: number;
+  failed: number;
+}
+
 export interface TemplateStats {
   windowDays: number;
-  totals: { total: number; delivered: number; failed: number };
+  /** The number this report is scoped to, or undefined for the whole workspace. */
+  whatsappPhoneNumberId?: string;
+  totals: MessageTally;
+  /** Plain (non-template) outbound WhatsApp text, same scope. */
+  plainTotals: MessageTally;
   byTemplate: TemplateStatsRow[];
   byNumber: TemplateStatsByNumber[];
   byDay: TemplateStatsByDay[];
@@ -585,8 +595,12 @@ export interface TemplateStats {
   averageDeliveryMinutes: number | null;
 }
 
-export function getTemplateStats(windowDays?: number): Promise<TemplateStats> {
-  return request<TemplateStats>(`/templates/stats${windowDays ? `?days=${windowDays}` : ''}`);
+export function getTemplateStats(opts: { windowDays?: number; whatsappPhoneNumberId?: string } = {}): Promise<TemplateStats> {
+  const params = new URLSearchParams();
+  if (opts.windowDays) params.set('days', String(opts.windowDays));
+  if (opts.whatsappPhoneNumberId) params.set('number', opts.whatsappPhoneNumberId);
+  const qs = params.toString();
+  return request<TemplateStats>(`/templates/stats${qs ? `?${qs}` : ''}`);
 }
 
 export function updateWhatsAppNudges(patch: {
