@@ -183,6 +183,14 @@ export interface GuestSession {
    * find the window as they left it, with Unblock where they can see it.
    */
   blocked?: boolean;
+  /**
+   * When every agent for this workspace was last online, as an ISO
+   * string — the header's starting value before any `agent:presence`
+   * socket event has arrived. Absent means nobody has ever gone offline
+   * while this field existed: a brand new workspace, or one that has
+   * been online every time a customer happened to load the page.
+   */
+  agentLastSeenAt?: string;
 }
 
 /** The reasons the report sheet offers, in the order it offers them. */

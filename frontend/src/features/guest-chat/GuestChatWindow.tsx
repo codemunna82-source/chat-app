@@ -135,6 +135,24 @@ function CallDuration({ since }: { since: number }) {
   return <span>{`${mm}:${ss}`}</span>;
 }
 
+/**
+ * "last seen today at 3:45 PM" / "yesterday at …" / "on 15 March at …" —
+ * the header's line when nobody from the business is online right now,
+ * the same shape WhatsApp's own uses.
+ */
+function formatLastSeen(iso: string): string {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date();
+  yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  const time = formatTime(iso);
+
+  if (sameDay(d, today)) return `last seen today at ${time}`;
+  if (sameDay(d, yesterday)) return `last seen yesterday at ${time}`;
+  return `last seen on ${dayLabel(d.toISOString())} at ${time}`;
+}
+
 /** "TODAY" / "YESTERDAY" / a short date — the chip above the first message of each day. */
 function dayLabel(iso: string): string {
   const d = new Date(iso);
@@ -470,6 +488,17 @@ export default function GuestChatWindow({ token }: { token: string }) {
   const [connected, setConnected] = useState(false);
   const [socket, setSocket] = useState<Socket | null>(null);
   const [agentOnline, setAgentOnline] = useState(false);
+  /**
+   * When the business last had anyone online, for the header's "last
+   * seen" line while `agentOnline` is false. Seeded from the session on
+   * load (see the session-load effect below) and kept current by the
+   * same `agent:presence` event that flips `agentOnline` — the server
+   * only sends this alongside `online: false`, so a true event never
+   * overwrites it with nothing.
+   */
+  const [agentLastSeenAt, setAgentLastSeenAt] = useState<string | null>(null);
+  /** Whether the full-screen contact-info screen is open, tapped from the header. */
+  const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
   const [uploading, setUploading] = useState(0);
   /**
@@ -1021,6 +1050,11 @@ export default function GuestChatWindow({ token }: { token: string }) {
         // rather than being state the window only ever learns about from
         // its own tap.
         setBlockedState(Boolean(loadedSession.blocked));
+        // Seeds the header's "last seen" line before any agent:presence
+        // socket event has arrived — otherwise a customer who loads the
+        // page while everyone is offline sees nothing in that line until
+        // someone next connects or disconnects.
+        if (loadedSession.agentLastSeenAt) setAgentLastSeenAt(loadedSession.agentLastSeenAt);
         setMessages(loadedMessages.items);
         setOlderCursor(loadedMessages.nextCursor);
         setPhase('ready');
@@ -1190,7 +1224,10 @@ export default function GuestChatWindow({ token }: { token: string }) {
       );
     });
 
-    s.on('agent:presence', (payload: { online: boolean }) => setAgentOnline(Boolean(payload?.online)));
+    s.on('agent:presence', (payload: { online: boolean; lastSeenAt?: string }) => {
+      setAgentOnline(Boolean(payload?.online));
+      if (payload?.lastSeenAt) setAgentLastSeenAt(payload.lastSeenAt);
+    });
 
     s.on('typing:start', () => {
       setAgentTyping(true);
@@ -2466,30 +2503,42 @@ export default function GuestChatWindow({ token }: { token: string }) {
           nothing reads as a broken control, and the space it took is
           better given to the name. */}
       <header className="z-20 flex shrink-0 items-center gap-2 bg-[var(--wa-header)] px-3 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-[var(--wa-header-text)] shadow-[0_1px_2px_rgba(11,20,26,0.08)]">
-        <div className="relative shrink-0">
-          <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/18 text-[13px] font-semibold text-[var(--wa-accent)]">
-            <BusinessFace photo={businessAvatar} initials={initials} iconClass="h-6 w-6 opacity-70" />
+        {/* Photo and name as one tap target, the way WhatsApp's own header
+            is: either opens the same contact-info screen, so there is one
+            place a customer checking who this number really is can go. */}
+        <button
+          type="button"
+          onClick={() => setContactInfoOpen(true)}
+          aria-label={`${title}: contact info`}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded-full py-0.5 text-left active:opacity-70"
+        >
+          <div className="relative shrink-0">
+            <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/18 text-[13px] font-semibold text-[var(--wa-accent)]">
+              <BusinessFace photo={businessAvatar} initials={initials} iconClass="h-6 w-6 opacity-70" />
+            </div>
           </div>
-        </div>
 
-        <div className="min-w-0 flex-1 pl-1">
-          <h1 className="flex items-center gap-1 text-[17px] font-medium leading-tight">
-            <span className="truncate">{title}</span>
-            <BusinessBadge
-              verified={session?.verifiedByWhatsApp}
-              className="h-[17px] w-[17px] translate-y-[0.5px]"
-            />
-          </h1>
-          <p className="truncate text-[12.5px] leading-[15px] text-[var(--wa-header-sub)]" aria-live="polite">
-            {!connected
-              ? 'connecting…'
-              : agentTyping
-                ? <span className="text-[var(--wa-accent)]">typing…</span>
-                : agentOnline
-                  ? 'online'
-                  : 'tap to chat'}
-          </p>
-        </div>
+          <div className="min-w-0 flex-1 pl-1">
+            <h1 className="flex items-center gap-1 text-[17px] font-medium leading-tight">
+              <span className="truncate">{title}</span>
+              <BusinessBadge
+                verified={session?.verifiedByWhatsApp}
+                className="h-[17px] w-[17px] translate-y-[0.5px]"
+              />
+            </h1>
+            <p className="truncate text-[12.5px] leading-[15px] text-[var(--wa-header-sub)]" aria-live="polite">
+              {!connected
+                ? 'connecting…'
+                : agentTyping
+                  ? <span className="text-[var(--wa-accent)]">typing…</span>
+                  : agentOnline
+                    ? 'online'
+                    : agentLastSeenAt
+                      ? formatLastSeen(agentLastSeenAt)
+                      : 'tap to chat'}
+            </p>
+          </div>
+        </button>
 
         <button
           type="button"
@@ -3207,7 +3256,102 @@ export default function GuestChatWindow({ token }: { token: string }) {
           }}
         />
       )}
+
+      {contactInfoOpen && (
+        <ContactInfoSheet
+          photo={businessAvatar}
+          initials={initials}
+          name={title}
+          verified={session?.verifiedByWhatsApp}
+          phone={session?.businessPhone}
+          onClose={() => setContactInfoOpen(false)}
+        />
+      )}
     </main>
+  );
+}
+
+/**
+ * Who the customer is actually talking to — tapped open from the header
+ * photo or name.
+ *
+ * Shows only what VOXO actually has: the photo and name already in the
+ * header, the WhatsApp number the business sends from, and whether Meta
+ * has approved that name. No "about" text or email, because nothing
+ * anywhere in VOXO reads either from Meta today — inventing a blank
+ * field would read as a broken one, which is worse than this screen
+ * simply not having a row for it yet.
+ */
+function ContactInfoSheet({
+  photo,
+  initials,
+  name,
+  verified,
+  phone,
+  onClose,
+}: {
+  photo: string | null;
+  initials: string;
+  name: string;
+  verified?: boolean;
+  phone?: string;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex flex-col bg-[var(--wa-wall)] text-[var(--wa-text)]"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Contact info"
+    >
+      <div className="flex items-center gap-2 bg-[var(--wa-header)] px-2 pb-2 pt-[calc(0.5rem+env(safe-area-inset-top,0px))] text-[var(--wa-header-text)]">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close contact info"
+          className="flex h-10 w-10 items-center justify-center rounded-full active:bg-black/10"
+        >
+          <CloseIcon className="h-5 w-5" />
+        </button>
+        <span className="text-[16px] font-medium">Contact info</span>
+      </div>
+
+      <div className="flex-1 overflow-y-auto px-4 py-6 pb-[calc(1.5rem+env(safe-area-inset-bottom,0px))]">
+        {/* Same card a fresh thread opens with (see the empty-state above)
+            — this is the same contact, so it reads the same way whether
+            it was shown once at the top of the chat or reached by tapping
+            the header any time after. */}
+        <div className="mx-auto w-full max-w-[400px] rounded-xl bg-[var(--wa-card)] px-5 py-6 text-center shadow-[var(--wa-panel-shadow)]">
+          <div className="mx-auto mb-3 flex h-24 w-24 items-center justify-center overflow-hidden rounded-full bg-[var(--wa-accent)]/18 text-[28px] font-semibold text-[var(--wa-accent)]">
+            <BusinessFace photo={photo} initials={initials} iconClass="h-12 w-12 opacity-70" />
+          </div>
+          <p className="flex items-center justify-center gap-1.5 text-[19px] font-medium leading-tight">
+            <span className="truncate">{name}</span>
+            <BusinessBadge verified={verified} className="h-5 w-5 translate-y-[1px]" />
+          </p>
+
+          {phone && <p className="mt-1 text-[14px] text-[var(--wa-card-sub)]">{phone}</p>}
+
+          <div className="mt-4 flex items-start justify-center gap-1.5 border-t border-[var(--wa-divider)] pt-4">
+            <span className="mt-[2px] shrink-0 text-[var(--wa-accent)]" aria-hidden>
+              <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="currentColor">
+                <path d="M8 .9 2 3.4v4.2c0 3.5 2.6 6.4 6 7.5 3.4-1.1 6-4 6-7.5V3.4zm-.9 10.2L4.4 8.4l1.2-1.2 1.5 1.5 3.3-3.3 1.2 1.2z" />
+              </svg>
+            </span>
+            <p className="text-[12.5px] leading-[17px] text-[var(--wa-card-sub)]">
+              {verified ? (
+                <>
+                  <span className="font-medium text-[var(--wa-accent)]">Verified business</span> · your chat
+                  here is private and secure. No ads or spam.
+                </>
+              ) : (
+                'WhatsApp Business account · your chat here is private and secure. No ads or spam.'
+              )}
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
