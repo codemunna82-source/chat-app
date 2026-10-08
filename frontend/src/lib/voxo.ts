@@ -547,6 +547,48 @@ export function getWhatsAppNudges(): Promise<WhatsAppNudgePolicy> {
   return request<WhatsAppNudgePolicy>('/tenant/settings/whatsapp-nudges');
 }
 
+export interface TemplateFailureReason {
+  reason: string;
+  count: number;
+}
+
+export interface TemplateStatsRow {
+  templateName: string;
+  /** Every send counted once, whatever it ended up doing. */
+  total: number;
+  delivered: number;
+  failed: number;
+  topFailureReasons: TemplateFailureReason[];
+}
+
+export interface TemplateStatsByNumber {
+  whatsappPhoneNumberId: string;
+  displayPhoneNumber: string;
+  total: number;
+  failed: number;
+}
+
+export interface TemplateStatsByDay {
+  date: string;
+  total: number;
+  delivered: number;
+  failed: number;
+}
+
+export interface TemplateStats {
+  windowDays: number;
+  totals: { total: number; delivered: number; failed: number };
+  byTemplate: TemplateStatsRow[];
+  byNumber: TemplateStatsByNumber[];
+  byDay: TemplateStatsByDay[];
+  medianDeliveryMinutes: number | null;
+  averageDeliveryMinutes: number | null;
+}
+
+export function getTemplateStats(windowDays?: number): Promise<TemplateStats> {
+  return request<TemplateStats>(`/templates/stats${windowDays ? `?days=${windowDays}` : ''}`);
+}
+
 export function updateWhatsAppNudges(patch: {
   enforced?: boolean;
   messages?: string[];

@@ -27,8 +27,9 @@ import { SectionBoundary } from '@/components/admin/SectionBoundary';
 import { Modal } from '@/components/ui/modal';
 import { ConfirmDeleteDialog } from '@/components/admin/ConfirmDeleteDialog';
 import { WhatsAppNudges } from '@/components/admin/WhatsAppNudges';
+import { TemplateStats } from '@/components/admin/TemplateStats';
 
-type AdminTab = 'business-managers' | 'numbers' | 'profile' | 'auto-replies' | 'nudges' | 'team';
+type AdminTab = 'business-managers' | 'numbers' | 'profile' | 'auto-replies' | 'nudges' | 'templates' | 'team';
 
 /**
  * The admin-only tabs, in the order a workspace is actually set up: a
@@ -41,6 +42,7 @@ const ADMIN_TABS: { id: AdminTab; label: string }[] = [
   { id: 'profile', label: 'Business profile' },
   { id: 'auto-replies', label: 'Automatic replies' },
   { id: 'nudges', label: 'WhatsApp nudges' },
+  { id: 'templates', label: 'Template reports' },
   { id: 'team', label: 'Team' },
 ];
 
@@ -316,6 +318,15 @@ export default function AdminPage() {
             description="The only wording an agent may send over WhatsApp until the customer opens their link — and, since the list length is the allowance, how many times."
           >
             <SectionBoundary><WhatsAppNudges /></SectionBoundary>
+          </Section>
+        </div>
+
+        <div className={isAdmin && activeTab === 'templates' ? '' : 'hidden'}>
+          <Section
+            title="Template reports"
+            description="Which templates are being delivered, which are being refused and why, which number they went out on, and how long a delivered one typically takes."
+          >
+            <SectionBoundary><TemplateStats /></SectionBoundary>
           </Section>
         </div>
 
