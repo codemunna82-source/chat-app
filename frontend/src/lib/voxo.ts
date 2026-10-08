@@ -554,10 +554,14 @@ export interface TemplateFailureReason {
 
 export interface TemplateStatsRow {
   templateName: string;
-  /** Every send counted once, whatever it ended up doing. */
+  /** Every send counted once, whatever it ended up doing. automatic + agent. */
   total: number;
   delivered: number;
   failed: number;
+  /** Sent by the system — the automatic private-chat invitation. */
+  automatic: MessageTally;
+  /** Picked by an agent from the template list. */
+  agent: MessageTally;
   topFailureReasons: TemplateFailureReason[];
 }
 

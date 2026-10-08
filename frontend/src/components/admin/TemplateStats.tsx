@@ -422,6 +422,11 @@ export function TemplateStats({ numbers, members }: { numbers: WhatsAppNumber[];
                   <th className="py-1.5 pr-4 font-medium">Sent</th>
                   <th className="py-1.5 pr-4 font-medium">Delivered</th>
                   <th className="py-1.5 pr-4 font-medium">Failed</th>
+                  {/* Same number split two ways: configured once on the
+                      Automatic Replies page vs picked per-conversation by
+                      an agent — very different things to act on. */}
+                  <th className="py-1.5 pr-4 font-medium">Automatic invitation</th>
+                  <th className="py-1.5 pr-4 font-medium">Agent-sent</th>
                   <th className="py-1.5 font-medium">Top failure reasons</th>
                 </tr>
               </thead>
@@ -432,6 +437,16 @@ export function TemplateStats({ numbers, members }: { numbers: WhatsAppNumber[];
                     <td className="py-2 pr-4 tabular-nums">{row.total}</td>
                     <td className="py-2 pr-4 tabular-nums text-emerald-500">{row.delivered}</td>
                     <td className={`py-2 pr-4 tabular-nums ${row.failed > 0 ? 'text-rose-500' : ''}`}>{row.failed}</td>
+                    <td className="py-2 pr-4 tabular-nums">
+                      {row.automatic.total}
+                      {row.automatic.failed > 0 ? (
+                        <span className="text-rose-500"> ({row.automatic.failed} failed)</span>
+                      ) : null}
+                    </td>
+                    <td className="py-2 pr-4 tabular-nums">
+                      {row.agent.total}
+                      {row.agent.failed > 0 ? <span className="text-rose-500"> ({row.agent.failed} failed)</span> : null}
+                    </td>
                     <td className="py-2 text-muted">
                       {row.topFailureReasons.length === 0
                         ? '—'
