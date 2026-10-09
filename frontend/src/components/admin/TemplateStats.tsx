@@ -40,11 +40,20 @@ const FAILED_COLOR = '#f43f5e'; // tailwind rose-500
 const IN_COLOR = 'var(--accent-2)';
 const OUT_COLOR = 'var(--primary)';
 
-function formatMinutes(minutes: number | null): string {
-  if (minutes === null) return '—';
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  const mins = minutes % 60;
+/**
+ * Seconds in, a human duration out — and specifically NOT rounded straight
+ * to whole minutes, which is what used to make a healthy number's typical
+ * delivery time (usually single-digit seconds) read as "0m": true, but
+ * indistinguishable from broken or empty at a glance.
+ */
+function formatDuration(totalSeconds: number | null): string {
+  if (totalSeconds === null) return '—';
+  if (totalSeconds < 60) return `${totalSeconds}s`;
+  const totalMinutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  if (totalMinutes < 60) return seconds === 0 ? `${totalMinutes}m` : `${totalMinutes}m ${seconds}s`;
+  const hours = Math.floor(totalMinutes / 60);
+  const mins = totalMinutes % 60;
   return mins === 0 ? `${hours}h` : `${hours}h ${mins}m`;
 }
 
@@ -418,7 +427,7 @@ export function TemplateStats({ numbers, members }: { numbers: WhatsAppNumber[];
           <h3 className="text-sm font-semibold">Templates sent per day</h3>
           <StatTile
             label={`Typical delivery time (${windowDays}d)`}
-            value={formatMinutes(stats.medianDeliveryMinutes)}
+            value={formatDuration(stats.medianDeliverySeconds)}
           />
         </div>
 

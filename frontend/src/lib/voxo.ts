@@ -624,8 +624,8 @@ export interface TemplateStats {
   byDay: TemplateStatsByDay[];
   /** Every message, both directions, every type — not just templates. */
   messagesByDay: MessageVolumeByDay[];
-  medianDeliveryMinutes: number | null;
-  averageDeliveryMinutes: number | null;
+  medianDeliverySeconds: number | null;
+  averageDeliverySeconds: number | null;
 }
 
 export function getTemplateStats(opts: { windowDays?: number; whatsappPhoneNumberId?: string } = {}): Promise<TemplateStats> {
