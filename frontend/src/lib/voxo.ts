@@ -591,13 +591,34 @@ export interface MessageVolumeByDay {
   out: number;
 }
 
+/** `plainTotals`, broken out the same way a `byTemplate` row is — see
+ *  TemplateStatsRow.automatic/.agent. */
+export interface PlainTextStats extends MessageTally {
+  automatic: MessageTally;
+  agent: MessageTally;
+}
+
+export interface RecentDeliveryHealth {
+  windowMinutes: number;
+  sent: number;
+  failed: number;
+  /** Of the failures, specifically Meta's throughput throttle (130429) —
+   *  the one thing Meta's own health check never shows while it's happening. */
+  rateLimited: number;
+  /** Enough of the window's sends were rate-limited that this reads as an
+   *  active throttle, not ordinary noise. */
+  isLikelyRateLimited: boolean;
+}
+
 export interface TemplateStats {
   windowDays: number;
   /** The number this report is scoped to, or undefined for the whole workspace. */
   whatsappPhoneNumberId?: string;
   totals: MessageTally;
   /** Plain (non-template) outbound WhatsApp text, same scope. */
-  plainTotals: MessageTally;
+  plainTotals: PlainTextStats;
+  /** Live, last-30-minutes — zeros when the report isn't scoped to one number. */
+  recentHealth: RecentDeliveryHealth;
   byTemplate: TemplateStatsRow[];
   byNumber: TemplateStatsByNumber[];
   byDay: TemplateStatsByDay[];

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   getTemplateStats,
   type MessageTally,
+  type RecentDeliveryHealth,
   type TemplateStats,
   type TeamMember,
   type WhatsAppNumber,
@@ -58,6 +59,49 @@ function StatTile({ label, value, tone }: { label: string; value: string; tone?:
       >
         {value}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Right-now delivery health for one number — the thing a quiet table row
+ * buried under "Top failure reasons" cannot answer fast enough during an
+ * actual incident. Meta's own health_status reports a number AVAILABLE
+ * the entire time a throughput throttle (130429) is running, so this is
+ * computed from this app's own recent sends instead — the only place the
+ * throttle is actually visible.
+ */
+function LiveHealthBanner({ health }: { health: RecentDeliveryHealth }) {
+  if (health.sent === 0) {
+    return (
+      <div className="rounded-2xl border border-border bg-surface/70 px-4 py-3 text-[13px] text-muted">
+        No sends on this number in the last {health.windowMinutes} minutes.
+      </div>
+    );
+  }
+
+  if (health.isLikelyRateLimited) {
+    return (
+      <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3">
+        <p className="text-[13.5px] font-semibold text-rose-500">
+          ⚠️ Meta is likely rate-limiting this number right now
+        </p>
+        <p className="mt-1 text-[12.5px] text-rose-500/90">
+          {health.rateLimited} of {health.sent} sends in the last {health.windowMinutes} minutes were refused with
+          &ldquo;Rate limit hit&rdquo;. This usually clears on its own — avoid bulk or duplicate sends until it does;
+          sending more while it is active tends to extend it.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-[13px]">
+      <span className="font-semibold text-emerald-600">Sending normally.</span>{' '}
+      <span className="text-muted">
+        {health.sent - health.failed} of {health.sent} sends delivered in the last {health.windowMinutes} minutes
+        {health.failed > 0 ? ` (${health.failed} failed, not a rate-limit pattern)` : ''}.
+      </span>
     </div>
   );
 }
@@ -248,6 +292,8 @@ export function TemplateStats({ numbers, members }: { numbers: WhatsAppNumber[];
         </label>
       </div>
 
+      {numberId !== ALL ? <LiveHealthBanner health={stats.recentHealth} /> : null}
+
       <div>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="text-sm font-semibold">
@@ -334,10 +380,36 @@ export function TemplateStats({ numbers, members }: { numbers: WhatsAppNumber[];
       <div>
         <h3 className="text-sm font-semibold">Plain WhatsApp text{scopedLabel ? ` — ${scopedLabel}` : ' (lifetime)'}</h3>
         <p className="mt-0.5 text-[12.5px] text-muted">
-          Ordinary replies — never an approved template — on the same number(s).
+          Ordinary replies — never an approved template — on the same number(s). Includes the automatic
+          private-chat invitation when it&rsquo;s configured to send as plain text rather than a template, which
+          has no template name to appear under &ldquo;By template&rdquo; below.
         </p>
         <div className="mt-3">
           <TallyTiles tally={stats.plainTotals} sentLabel="Sent" />
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="rounded-2xl border border-border bg-surface/70 px-4 py-3">
+            <p className="text-[12.5px] text-muted">Automatic invitation</p>
+            <p className="mt-1 font-display text-xl font-bold tabular-nums">
+              {stats.plainTotals.automatic.total}
+              {stats.plainTotals.automatic.failed > 0 ? (
+                <span className="ml-1.5 text-sm font-semibold text-rose-500">
+                  ({stats.plainTotals.automatic.failed} failed)
+                </span>
+              ) : null}
+            </p>
+          </div>
+          <div className="rounded-2xl border border-border bg-surface/70 px-4 py-3">
+            <p className="text-[12.5px] text-muted">Agent-sent</p>
+            <p className="mt-1 font-display text-xl font-bold tabular-nums">
+              {stats.plainTotals.agent.total}
+              {stats.plainTotals.agent.failed > 0 ? (
+                <span className="ml-1.5 text-sm font-semibold text-rose-500">
+                  ({stats.plainTotals.agent.failed} failed)
+                </span>
+              ) : null}
+            </p>
+          </div>
         </div>
       </div>
 
