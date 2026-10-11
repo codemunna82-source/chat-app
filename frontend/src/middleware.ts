@@ -52,6 +52,7 @@ export function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
   if (pathname === '/c' || pathname.startsWith('/c/')) return NextResponse.next();
+  if (pathname === '/u' || pathname.startsWith('/u/')) return NextResponse.next();
 
   // The landing page. Allowed because the domain now appears inside
   // WhatsApp messages, so people read it and type it before tapping — and
