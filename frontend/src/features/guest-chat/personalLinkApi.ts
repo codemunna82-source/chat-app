@@ -4,7 +4,7 @@ import { GuestLinkInvalidError, GuestNetworkError } from './guestApi';
  * Deliberately its own tiny client rather than reusing guestApi.ts's
  * `request()`: every call there sends `Authorization: Bearer <session
  * token>`, and a visitor on a personal link has no session yet — that is
- * the whole point of this page. These two calls are genuinely
+ * the whole point of this page. This call is genuinely
  * unauthenticated, hitting /api/public/personal-link rather than
  * /api/guest.
  */
@@ -36,23 +36,15 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   return body.data;
 }
 
-export interface PersonalLinkOwner {
-  displayName: string | null;
-}
-
-export function getPersonalLinkOwner(token: string): Promise<PersonalLinkOwner> {
-  return call<PersonalLinkOwner>(`/${encodeURIComponent(token)}`);
-}
-
 export interface StartedPersonalChat {
   url: string;
   expiresAt: string;
   displayName: string | null;
 }
 
-export function startPersonalChat(token: string, phone: string): Promise<StartedPersonalChat> {
+export function startPersonalChat(token: string): Promise<StartedPersonalChat> {
   return call<StartedPersonalChat>(`/${encodeURIComponent(token)}/start`, {
     method: 'POST',
-    body: JSON.stringify({ phone }),
+    body: JSON.stringify({}),
   });
 }

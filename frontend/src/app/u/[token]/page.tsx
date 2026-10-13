@@ -3,8 +3,8 @@ import PersonalLinkLanding from '@/features/guest-chat/PersonalLinkLanding';
 
 /**
  * Someone's permanent "chat with me" link — /u/, not /c/: there is no
- * guest session yet, only a landing page asking a brand-new visitor for
- * their phone number before one is minted (see PersonalLinkLanding).
+ * guest session yet; the landing page mints one and opens the chat
+ * straight away (see PersonalLinkLanding).
  *
  * `noindex` for the same reason as /c/[token]: this gets shared on a
  * card or a bio and forwarded from person to person, and a crawler
