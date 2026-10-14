@@ -1754,6 +1754,48 @@ export default function GuestChatWindow({ token }: { token: string }) {
     if (support === 'granted') {
       void refreshPush((pushToken) => savePushToken(token, pushToken));
     }
+
+    /**
+     * Ask the moment the link opens, as the owner wants: the browser's own
+     * Allow / Block prompt, and on Allow the token is registered straight
+     * away so a reply reaches this phone even with the tab closed.
+     *
+     * Chrome and Firefox show the prompt without a tap. Safari (and any
+     * browser that insists on a gesture) leaves permission at "default" —
+     * then nothing is lost: the Turn on bar below stays and its tap does
+     * the same job. Asked at most once per link; a "Block" is final and
+     * remembered by the browser itself.
+     */
+    let alreadyAsked = false;
+    try {
+      alreadyAsked = window.localStorage.getItem(`wa-notify-asked:${token}`) === '1';
+    } catch {
+      alreadyAsked = true;
+    }
+    if (support === 'available' && !alreadyAsked) {
+      void (async () => {
+        setPushBusy(true);
+        try {
+          const result = await enablePush((pushToken) => savePushToken(token, pushToken));
+          setPush(result);
+          if (result === 'granted') {
+            flashRef.current?.('Notifications are on. We will tell you when they reply.');
+          }
+          if (result !== 'available') {
+            setNotifyDismissed(true);
+            try {
+              window.localStorage.setItem(`wa-notify-asked:${token}`, '1');
+            } catch {
+              /* the bar simply reappears next time */
+            }
+          }
+        } catch {
+          /* push must never take the chat down; the bar remains */
+        } finally {
+          setPushBusy(false);
+        }
+      })();
+    }
   }, [token, demo]);
 
   const dismissNotifyBar = useCallback(() => {
