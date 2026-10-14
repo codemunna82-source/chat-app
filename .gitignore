@@ -45,6 +45,9 @@ frontend/.env.*
 !.env.example
 !backend/.env.example
 !frontend/.env.local.example
+# Public, non-secret build config for the customer chat window — see the
+# file's own header for why this one is tracked.
+!frontend/.env.production
 
 # vercel
 .vercel

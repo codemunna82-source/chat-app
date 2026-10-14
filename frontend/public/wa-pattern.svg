@@ -1,0 +1,85 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="340" height="340" viewBox="0 0 340 340" fill="none" stroke="#0b141a" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+  <!-- A doodle wallpaper in the spirit of a messaging app: small outlined
+       everyday objects, scattered so no two neighbours repeat along a seam.
+       Drawn here rather than shipped as a bitmap so it stays crisp at any
+       density and can be recoloured by a filter for dark mode. -->
+
+  <!-- heart -->
+  <path d="M34 52c-7-7-16-4-16 4 0 8 10 15 16 19 6-4 16-11 16-19 0-8-9-11-16-4z"/>
+
+  <!-- smiley -->
+  <circle cx="110" cy="34" r="13"/>
+  <circle cx="105.5" cy="30.5" r="1.4" fill="#0b141a" stroke="none"/>
+  <circle cx="114.5" cy="30.5" r="1.4" fill="#0b141a" stroke="none"/>
+  <path d="M104 38.5c3 3.5 9 3.5 12 0"/>
+
+  <!-- coffee cup -->
+  <path d="M182 26h22v15a11 11 0 0 1-22 0z"/>
+  <path d="M204 30h5a5 5 0 0 1 0 10h-5"/>
+  <path d="M179 55h28"/>
+
+  <!-- music notes -->
+  <path d="M268 24v22"/><path d="M268 24l16-4v22"/>
+  <circle cx="264" cy="47" r="4.5"/><circle cx="280" cy="43" r="4.5"/>
+
+  <!-- paper plane -->
+  <path d="M312 44 322 20l-24 10 9 5z"/><path d="M307 35l0 9 5-4"/>
+
+  <!-- camera -->
+  <rect x="24" y="112" width="34" height="24" rx="4"/>
+  <path d="M34 112l3-5h8l3 5"/><circle cx="41" cy="124" r="7"/>
+
+  <!-- balloon -->
+  <path d="M96 96a11 11 0 1 1 22 0c0 8-11 18-11 18s-11-10-11-18z"/>
+  <path d="M107 114c2 5-3 6-1 11"/>
+
+  <!-- gift -->
+  <rect x="168" y="106" width="30" height="22" rx="2"/>
+  <path d="M183 106v22M168 114h30"/>
+  <path d="M183 106c-6-8-14-2-8 2M183 106c6-8 14-2 8 2"/>
+
+  <!-- umbrella -->
+  <path d="M248 116a18 18 0 0 1 36 0z"/><path d="M266 116v18a6 6 0 0 1-12 0"/>
+
+  <!-- clock -->
+  <circle cx="316" cy="120" r="14"/><path d="M316 112v9l6 4"/>
+
+  <!-- leaf -->
+  <path d="M22 210c0-16 14-28 30-28 0 16-13 28-30 28z"/><path d="M52 182 26 206"/>
+
+  <!-- lightbulb -->
+  <path d="M100 200a12 12 0 1 1 24 0c0 6-4 8-5 12h-14c-1-4-5-6-5-12z"/>
+  <path d="M105 218h14M107 223h10"/>
+
+  <!-- book -->
+  <path d="M170 192h26a4 4 0 0 1 4 4v24h-26a4 4 0 0 1-4-4z"/>
+  <path d="M170 192v24"/>
+
+  <!-- pizza slice -->
+  <path d="M250 220 266 186l16 34c-10 5-22 5-32 0z"/>
+  <circle cx="266" cy="203" r="2" fill="#0b141a" stroke="none"/>
+  <circle cx="261" cy="212" r="2" fill="#0b141a" stroke="none"/>
+  <circle cx="272" cy="212" r="2" fill="#0b141a" stroke="none"/>
+
+  <!-- star -->
+  <path d="M316 188l4.5 9.5 10.5 1.5-7.5 7.4 1.8 10.6-9.3-5-9.3 5 1.8-10.6-7.5-7.4 10.5-1.5z"/>
+
+  <!-- chat bubble -->
+  <path d="M22 288h30a4 4 0 0 0 4-4v-16a4 4 0 0 0-4-4H22a4 4 0 0 0-4 4v16a4 4 0 0 0 4 4z"/>
+  <path d="M30 288l-4 8 10-8"/>
+
+  <!-- bicycle -->
+  <circle cx="100" cy="292" r="10"/><circle cx="130" cy="292" r="10"/>
+  <path d="M100 292l10-18h10l10 18M110 274h8"/>
+
+  <!-- key -->
+  <circle cx="180" cy="278" r="8"/><path d="M186 284l16 16M194 292l4 4M190 288l4 4"/>
+
+  <!-- flower -->
+  <circle cx="262" cy="288" r="4"/>
+  <path d="M262 284c-2-8 8-8 6 0M266 288c8-2 8 8 0 6M262 292c2 8-8 8-6 0M258 288c-8 2-8-8 0-6"/>
+
+  <!-- sun -->
+  <circle cx="316" cy="286" r="9"/>
+  <path d="M316 271v-5M316 306v-5M301 286h-5M336 286h-5M305 275l-4-4M331 301l-4-4M327 275l4-4M301 301l4-4"/>
+</svg>
